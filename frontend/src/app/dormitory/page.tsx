@@ -1334,7 +1334,7 @@ export default function DormitoryPage() {
                                 if (newDateStr) {
                                   const dateObj = new Date(newDateStr);
                                   const day = dateObj.getDate();
-                                  if (day > 5) {
+                                  if (day >= 6 && day <= 24) {
                                     setLateDays((day - 5).toString());
                                   } else {
                                     setLateDays("0");
