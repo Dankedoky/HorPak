@@ -57,6 +57,14 @@ class TransactionType(enum.Enum):
     INCOME = "income"
     EXPENSE = "expense"
 
+class ExpenseCategory(enum.Enum):
+    WATER_BILL = "water_bill"          # ค่าน้ำประปาหลวงส่วนกลาง
+    ELECTRIC_BILL = "electric_bill"    # ค่าไฟฟ้าหลวงส่วนกลาง
+    SPARE_PARTS = "spare_parts"        # อะไหล่สำหรับอู่รถ
+    MAINTENANCE = "maintenance"        # ค่าชำระซ่อมบำรุงห้องพัก/บ้านเช่า
+    SALARY = "salary"                  # ค่าแรงช่าง/ค่าจ้างแม่บ้าน
+    OTHER = "other"                    # ค่าใช้จ่ายอื่นๆ
+
 class Transaction(Base):
     __tablename__ = "transactions"
 
@@ -72,6 +80,9 @@ class Transaction(Base):
     
     customer_id = Column(Integer, ForeignKey("customers.id"), nullable=True)
     customer = relationship("Customer")
+
+    expense_category = Column(Enum(ExpenseCategory), nullable=True)
+
 
 class DormRoom(Base):
     __tablename__ = "dorm_rooms"
@@ -164,3 +175,15 @@ class DormPayment(Base):
     payment_status = Column(String, default="unpaid") # "unpaid", "paid"
     paid_at = Column(DateTime, nullable=True)
     slip_url = Column(String, nullable=True)
+
+class MaintenanceTicket(Base):
+    __tablename__ = "maintenance_tickets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    room_number = Column(String, index=True, nullable=False)
+    description = Column(String, nullable=False)
+    status = Column(String, default="pending") # "pending", "in_progress", "resolved"
+    line_user_id = Column(String, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    resolved_at = Column(DateTime, nullable=True)
+

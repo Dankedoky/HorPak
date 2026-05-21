@@ -1,7 +1,7 @@
 from pydantic import BaseModel, field_validator
 from typing import Optional, List, Any
 from datetime import datetime
-from models import UnitType, InvoiceStatus, TransactionType
+from models import UnitType, InvoiceStatus, TransactionType, ExpenseCategory
 
 class InvoiceBase(BaseModel):
     title: str
@@ -90,6 +90,7 @@ class TransactionBase(BaseModel):
     reference_id: Optional[str] = None
     unit_id: Optional[int] = None
     customer_id: Optional[int] = None
+    expense_category: Optional[ExpenseCategory] = None
 
 class TransactionCreate(TransactionBase):
     pass
@@ -338,4 +339,34 @@ class DormPayment(DormPaymentBase):
 
     class Config:
         from_attributes = True
+
+# MaintenanceTicket Schemas
+class MaintenanceTicketBase(BaseModel):
+    room_number: str
+    description: str
+    status: str = "pending"
+    line_user_id: Optional[str] = None
+
+class MaintenanceTicketCreate(MaintenanceTicketBase):
+    pass
+
+class MaintenanceTicketUpdate(BaseModel):
+    status: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+
+    @field_validator('resolved_at', mode='before')
+    @classmethod
+    def parse_resolved_at(cls, v: Any) -> Any:
+        if v == "":
+            return None
+        return v
+
+class MaintenanceTicket(MaintenanceTicketBase):
+    id: int
+    created_at: datetime
+    resolved_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
 

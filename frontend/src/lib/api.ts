@@ -352,3 +352,19 @@ export async function deleteBusinessUnit(unitId: number) {
   });
   return res.json();
 }
+
+// Maintenance Tickets APIs
+export async function fetchMaintenanceTickets() {
+  const res = await fetch(`${API_BASE_URL}/maintenance-tickets/`);
+  return res.json();
+}
+
+export async function updateMaintenanceTicketStatus(ticketId: number, status: string) {
+  const res = await fetch(`${API_BASE_URL}/maintenance-tickets/${ticketId}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ status }),
+  });
+  return res.json();
+}
+

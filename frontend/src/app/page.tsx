@@ -735,6 +735,7 @@ function MonthlyChart() {
   const [data, setData] = useState<{month:string; income:number; expense:number}[]>([]);
   const [billingResult, setBillingResult] = useState<Record<string, any> | null>(null);
   const [showBilling, setShowBilling] = useState(false);
+  const [sendingLine, setSendingLine] = useState(false);
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   useEffect(() => {
@@ -751,6 +752,25 @@ function MonthlyChart() {
       setBillingResult(result);
       setShowBilling(true);
     } catch { alert("ไม่สามารถเช็คบิลได้"); }
+  };
+
+  const sendLineReminders = async () => {
+    if (!billingResult || billingResult.unpaid_rooms === 0) return;
+    if (!confirm(`ต้องการส่งใบแจ้งยอดค่าเช่าหอพักจำนวน ${billingResult.unpaid_rooms} ห้อง ไปยัง LINE OA ของลูกหอแต่ละรายใช่หรือไม่?\n\n*ระบบจะจัดส่งเฉพาะห้องที่เชื่อมต่อไลน์สำเร็จเท่านั้น`)) {
+      return;
+    }
+    setSendingLine(true);
+    try {
+      const res = await fetch(`${API_BASE}/notify/billing-reminder?send_line=true`, { method: "POST" });
+      const result = await res.json();
+      setBillingResult(result);
+      alert(`🎉 ดำเนินการส่งแจ้งบิลเข้า LINE OA สำเร็จ!\n\n• ส่งสำเร็จ: ${result.line_push_success} ห้อง\n• ส่งล้มเหลว/ไม่มี LINE ID: ${result.line_push_failed} ห้อง`);
+    } catch (err) {
+      console.error(err);
+      alert("❌ เกิดข้อผิดพลาดในการส่ง LINE แจ้งบิล");
+    } finally {
+      setSendingLine(false);
+    }
   };
 
   const maxVal = Math.max(...data.flatMap(d => [d.income, d.expense]), 1);
@@ -844,30 +864,91 @@ function MonthlyChart() {
 
       {/* Billing Reminder Modal */}
       {showBilling && billingResult && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setShowBilling(false)}>
-          <div className="bg-white rounded-2xl p-6 max-w-md w-full mx-4 shadow-2xl" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-black text-slate-800 mb-4">🔔 สรุปบิลค้างชำระ</h3>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]" onClick={() => setShowBilling(false)}>
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full mx-4 shadow-2xl overflow-hidden animate-[scaleUp_0.3s_ease-out]" onClick={e => e.stopPropagation()}>
+            <div className="flex justify-between items-center mb-4">
+              <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
+                <span>🔔</span> สรุปบิลค้างชำระ (Unpaid Bills)
+              </h3>
+              <button onClick={() => setShowBilling(false)} className="text-slate-400 hover:text-slate-600 transition">
+                ✕
+              </button>
+            </div>
+            
             <div className="space-y-3 mb-6">
-              <div className="flex justify-between items-center p-3 bg-blue-50 rounded-xl">
-                <span className="text-sm font-semibold text-blue-700">🏢 หอพัก</span>
+              <div className="flex justify-between items-center p-3.5 bg-blue-50 rounded-2xl border border-blue-100/50">
+                <span className="text-sm font-bold text-blue-700">🏢 หอพัก (Rooms)</span>
                 <span className="text-lg font-black text-blue-800">{billingResult.unpaid_rooms} ห้อง</span>
               </div>
-              <div className="flex justify-between items-center p-3 bg-amber-50 rounded-xl">
-                <span className="text-sm font-semibold text-amber-700">🏠 บ้านเช่า</span>
+              <div className="flex justify-between items-center p-3.5 bg-amber-50 rounded-2xl border border-amber-100/50">
+                <span className="text-sm font-bold text-amber-700">🏠 บ้านเช่า (Houses)</span>
                 <span className="text-lg font-black text-amber-800">{billingResult.unpaid_houses} หลัง</span>
               </div>
-              <div className="flex justify-between items-center p-3 bg-orange-50 rounded-xl">
-                <span className="text-sm font-semibold text-orange-700">🔧 อู่ซ่อมรถ</span>
+              <div className="flex justify-between items-center p-3.5 bg-orange-50 rounded-2xl border border-orange-100/50">
+                <span className="text-sm font-bold text-orange-700">🔧 อู่ซ่อมรถ (Garage)</span>
                 <span className="text-lg font-black text-orange-800">{billingResult.unpaid_jobs} งาน</span>
               </div>
-              <div className="flex justify-between items-center p-3 bg-slate-800 rounded-xl">
-                <span className="text-sm font-bold text-white">รวมทั้งหมด</span>
+              <div className="flex justify-between items-center p-3.5 bg-slate-900 rounded-2xl">
+                <span className="text-sm font-bold text-slate-300">ยอดค้างชำระทั้งหมด</span>
                 <span className="text-xl font-black text-emerald-400">{billingResult.total_unpaid} รายการ</span>
               </div>
             </div>
-            <button onClick={() => setShowBilling(false)}
-              className="w-full py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition text-sm"
-            >ปิด</button>
+
+            {/* LINE OA Dispatch Status / Trigger */}
+            {billingResult.send_line_executed ? (
+              <div className="mb-6 bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5 animate-[fadeIn_0.3s_ease-out]">
+                <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">📊 สรุปผลการส่งผ่าน LINE OA</h4>
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-2.5 text-center">
+                    <div className="text-[10px] font-bold text-emerald-500">ส่งสำเร็จ</div>
+                    <div className="text-lg font-black text-emerald-700">{billingResult.line_push_success} ห้อง</div>
+                  </div>
+                  <div className="bg-rose-50 border border-rose-100 rounded-xl p-2.5 text-center">
+                    <div className="text-[10px] font-bold text-rose-500">ค้าง/ไม่มี LINE</div>
+                    <div className="text-lg font-black text-rose-700">{billingResult.line_push_failed} ห้อง</div>
+                  </div>
+                </div>
+                {billingResult.failed_rooms && billingResult.failed_rooms.length > 0 && (
+                  <div className="pt-2">
+                    <div className="text-[9px] font-bold text-slate-400 uppercase tracking-wider mb-1">ห้องที่ไม่มีการผูกไอดี LINE OA:</div>
+                    <div className="max-h-24 overflow-y-auto space-y-1 pr-1 custom-scrollbar">
+                      {billingResult.failed_rooms.map((room: string) => (
+                        <div key={room} className="text-[10px] bg-white border border-slate-100 px-2 py-1 rounded text-slate-500 font-semibold">
+                          ⚠️ {room}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ) : (
+              billingResult.unpaid_rooms > 0 && (
+                <button
+                  disabled={sendingLine}
+                  onClick={sendLineReminders}
+                  className="w-full py-3 bg-gradient-to-r from-blue-600 to-indigo-700 hover:from-blue-700 hover:to-indigo-800 disabled:from-blue-400 disabled:to-indigo-500 text-white font-extrabold rounded-2xl transition-all shadow-lg shadow-blue-600/20 hover:shadow-blue-600/30 text-sm mb-3 flex items-center justify-center gap-2 cursor-pointer"
+                >
+                  {sendingLine ? (
+                    <>
+                      <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                      <span>กำลังจัดส่งข้อความผ่าน LINE OA...</span>
+                    </>
+                  ) : (
+                    <>
+                      <span>📲</span>
+                      <span>ส่งใบแจ้งยอดเข้า LINE OA ({billingResult.unpaid_rooms} ห้อง)</span>
+                    </>
+                  )}
+                </button>
+              )
+            )}
+
+            <button
+              onClick={() => setShowBilling(false)}
+              className="w-full py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-2xl transition text-sm cursor-pointer"
+            >
+              ปิดหน้าต่าง
+            </button>
           </div>
         </div>
       )}

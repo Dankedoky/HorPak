@@ -23,6 +23,7 @@ interface Transaction {
   unit_id: number | null;
   created_at: string;
   unit?: BusinessUnit;
+  expense_category?: string | null;
 }
 
 interface BusinessUnitSummary {
@@ -40,6 +41,15 @@ interface DashboardSummary {
   balance: number;
   units: BusinessUnitSummary[];
 }
+
+const EXPENSE_CATEGORY_LABELS = {
+  water_bill: "💧 ค่าน้ำประปาหลวงส่วนกลาง",
+  electric_bill: "⚡ ค่าไฟฟ้าหลวงส่วนกลาง",
+  spare_parts: "🔧 อะไหล่สำหรับอู่รถ",
+  maintenance: "🛠️ ค่าซ่อมบำรุงอาคาร/ห้องพัก",
+  salary: "👷 ค่าแรง/ค่าจ้างพนักงาน",
+  other: "📦 ค่าใช้จ่ายอื่นๆ"
+};
 
 export default function FinancialAccountingPage() {
   // Database States
@@ -64,6 +74,7 @@ export default function FinancialAccountingPage() {
   const [newTxAmount, setNewTxAmount] = useState("");
   const [newTxDesc, setNewTxDesc] = useState("");
   const [newTxUnitId, setNewTxUnitId] = useState<string>("general");
+  const [newTxCategory, setNewTxCategory] = useState<string>("other");
   const [toastMessage, setToastMessage] = useState("");
 
   // Loading flag for SSR mount check
@@ -120,13 +131,15 @@ export default function FinancialAccountingPage() {
         type: newTxType,
         amount: amount,
         description: newTxDesc.trim(),
-        unit_id: unitIdPayload
+        unit_id: unitIdPayload,
+        expense_category: newTxType === TransactionType.EXPENSE ? newTxCategory : null
       });
 
       // Clear Form & Close Modal
       setNewTxAmount("");
       setNewTxDesc("");
       setNewTxUnitId("general");
+      setNewTxCategory("other");
       setShowAddModal(false);
       
       triggerToast("🎉 บันทึกธุรกรรมการเงินเรียบร้อยแล้ว!");
@@ -701,8 +714,13 @@ export default function FinancialAccountingPage() {
 
                     {/* Ledger description */}
                     <td className="px-6 py-4">
-                      <div className="text-xs font-semibold text-slate-600 group-hover:text-slate-900 transition-colors">
-                        {t.description}
+                      <div className="text-xs font-semibold text-slate-600 group-hover:text-slate-900 transition-colors flex flex-col gap-1">
+                        <span>{t.description}</span>
+                        {t.expense_category && (
+                          <span className="text-[9px] bg-rose-50 text-rose-600 border border-rose-100 font-black px-2.5 py-0.5 rounded-xl w-fit">
+                            {EXPENSE_CATEGORY_LABELS[t.expense_category as keyof typeof EXPENSE_CATEGORY_LABELS] || t.expense_category}
+                          </span>
+                        )}
                       </div>
                     </td>
 
@@ -843,6 +861,25 @@ export default function FinancialAccountingPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Field 3.5: Expense Category (Only for EXPENSE) */}
+              {newTxType === TransactionType.EXPENSE && (
+                <div className="space-y-1 animate-[fadeIn_0.2s_ease-out]">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase">หมวดหมู่รายจ่าย</label>
+                  <select
+                    value={newTxCategory}
+                    onChange={(e) => setNewTxCategory(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-bold text-slate-700 cursor-pointer"
+                  >
+                    <option value="water_bill">💧 ค่าน้ำประปาหลวงส่วนกลาง</option>
+                    <option value="electric_bill">⚡ ค่าไฟฟ้าหลวงส่วนกลาง</option>
+                    <option value="spare_parts">🔧 อะไหล่สำหรับอู่รถ</option>
+                    <option value="maintenance">🛠️ ค่าซ่อมบำรุงอาคาร/ห้องพัก</option>
+                    <option value="salary">👷 ค่าแรง/ค่าจ้างพนักงาน</option>
+                    <option value="other">📦 ค่าใช้จ่ายอื่นๆ</option>
+                  </select>
+                </div>
+              )}
 
               {/* Field 4: Description */}
               <div className="space-y-1">

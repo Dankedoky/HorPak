@@ -23,7 +23,13 @@ try:
             pass
     else:
         # Attempt PostgreSQL connection with a short timeout
-        engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"connect_timeout": 5})
+        connect_args = {"connect_timeout": 5}
+        if "6543" in SQLALCHEMY_DATABASE_URL:
+            # Disable prepared statements for PgBouncer/Supabase Pooler in Transaction Mode
+            connect_args["prepare_threshold"] = None
+            logger.info("Supabase Pooler (Port 6543) detected. Automatically disabled prepared statements.")
+        
+        engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args=connect_args)
         with engine.connect() as conn:
             pass
         logger.info("Successfully connected to the primary PostgreSQL database.")

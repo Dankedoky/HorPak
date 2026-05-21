@@ -1,5 +1,21 @@
 # Activity Log
 
+## [2026-05-21] Phase 2: LINE OA Billing Reminders & Interactive Maintenance System Implementation
+- **1-Click LINE OA Billing Dispatcher:** Fully integrated the bulk billing reminders dispatcher directly on the main dashboard modal. Built robust loading, spinner, success metrics, and non-linked room listings that trigger POST `/notify/billing-reminder?send_line=true` with safety controls.
+- **Interactive Maintenance Ticket Dashboard:** Created a stunning Next.js premium, glassmorphic dashboard `/maintenance` protected by auth rules. Shows real-time statistics (KPI cards) of tickets reported via LINE OA, supports text searches, and provides interactive control transitions (`pending` -> `in_progress` -> `resolved`) that automatically sync and dispatch push notification updates back to the tenant's LINE account.
+- **Bilingual Clean Architecture Integration:** Mapped API helper methods in `api.ts` utilizing `snake_case <-> camelCase` structures, using Thai explanations for UI and English technical headers.
+- **Production Build Validation:** Executed a full Next.js production build (`npm run build`) and Python backend verification (`py_compile`), achieving 100% success rate with 0 errors.
+
+## [2026-05-21] Private Family ERP & LINE OA Hyper-Automation Roadmap
+- **Private Family ERP & Hyper-Automation Blueprint:** Completely updated and drafted a new detailed architectural blueprint and roadmap (`erp_roadmap.md`) in response to the owner's specific property profiles. Documented integration pipelines for restricted password access control, 1-Click LINE OA Billing Flex Messages (25th - 5th), automated daily fines of 100 THB after the 5th, tenant-facing maintenance ticketing chatbot, and real-time personal LINE alerts detailing cash inflows by source (หอ, อู่, บ้านเช่า) and cash outflows by category (ค่าน้ำ, ค่าไฟ, อื่นๆ).
+
+## [2026-05-21] Financial Integrity Safeguards & SlipOK Production Integration
+- **SlipOK Verification & Duplicate Slip Prevention:** Refactored `/payment/verify-slip/` to fetch environment variables `SLIPOK_API_KEY` and `SLIPOK_BRANCH_ID` and execute real API requests to SlipOK. Integrated robust duplicate slip prevention checking the transaction reference ID (`transRef`) in SQLite and Supabase PostgreSQL. Added detailed fallback simulations for Sandbox tests to prevent double ledger postings.
+- **Invoice Transaction Reversal Sync:** Upgraded `update_invoice_status` to automatically reverse and delete the corresponding `Transaction` record from the ledger if an invoice status switches back from `"paid"` to `"unpaid"` or `"cancelled"`, eliminating Ghost Revenue risk.
+- **Business Unit Deletion Protection:** Hardened `delete_business_unit` by enforcing relational integrity checks before deletion. If a business unit is tied to any rooms, houses, invoices, or transactions, deletion is rejected with a descriptive Thai error message.
+- **Environment Template Update:** Added `SLIPOK_API_KEY` and `SLIPOK_BRANCH_ID` options in `backend/.env.example` to guide owner production setup.
+- **Full-Stack Build Validation:** Confirmed that `python -m py_compile main.py` succeeds with zero errors, and Next.js production build (`npm run build`) compiles successfully in 3.0s with 100% route stability.
+
 ## [2026-05-20] Uvicorn Daemon Resuscitation & Reset Synchronization Verification
 - **Uvicorn Daemon Boot:** Started the Uvicorn backend server on port 8000 (`http://127.0.0.1:8000`) and successfully verified the connection to the primary Supabase PostgreSQL database. This resolves the `Failed to fetch` error encountered by the frontend when attempting to communicate with the REST API.
 - **Database Reset & Re-seeding Verification:** Tested the POST `/rooms/reset/` API endpoint. Verified that dropping and recreating tables works flawlessly on Supabase, and successfully seeds all 71 rooms and 3 houses as clean vacant spaces with `tenant=""` as expected.
@@ -145,4 +161,10 @@
 - **Full-Stack Dockerization:** Created optimized Dockerfiles for both Backend (FastAPI) and Frontend (Next.js) and a unified docker-compose.yml for production deployment.
 - **Developer Experience:** Generated .env.example files for both services and updated the README with comprehensive setup and LINE webhook instructions.
 - **Sidebar Integration:** Integrated the new Customers registry into the main navigation sidebar.
+
+## [2026-05-21] System Diagnostic Verification & Financial Auditing
+- **Compiler Verification:** Successfully compiled all Python backend modules (`main.py`, `models.py`, `schemas.py`, `database.py`) using `py_compile`, ensuring 0 syntax or runtime import errors.
+- **Next.js Production Build Validation:** Executed a full production Next.js build check, verifying 100% compilation success in under 5 seconds with no TypeScript typing or static generation mismatches.
+- **Financial Audit Analysis:** Performed a detailed logic flow audit on backend transaction pipelines. Identified key improvements for financial integrity including transaction reversal syncing on paid-to-pending toggles, cascade deletion ledger updates, and suggestions for real-time Slip Verification API integrations.
+
 

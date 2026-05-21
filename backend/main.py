@@ -11,7 +11,7 @@ import models, schemas, database
 from auth import create_token, LoginRequest, get_current_user
 from database import engine, get_db
 from linebot.v3 import WebhookParser
-from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage
+from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
@@ -285,6 +285,11 @@ def delete_customer(customer_id: int, db: Session = Depends(get_db)):
     if not db_customer:
         raise HTTPException(status_code=404, detail="Customer not found")
     
+    has_invoices = db.query(models.Invoice).filter(models.Invoice.customer_id == customer_id).first()
+    has_tx = db.query(models.Transaction).filter(models.Transaction.customer_id == customer_id).first()
+    if has_invoices or has_tx:
+        raise HTTPException(status_code=400, detail="ไม่สามารถลบลูกค้าท่านนี้ได้ เนื่องจากมีประวัติธุรกรรมทางการเงินหรือบิลค้างชำระในระบบ (กรุณาใช้การ Soft Delete หรือยกเลิกบิลก่อนเพื่อความถูกต้องทางบัญชี)")
+        
     db.delete(db_customer)
     db.commit()
     return {"status": "success", "message": "Customer deleted successfully"}
@@ -312,8 +317,8 @@ def update_invoice_status(invoice_id: int, status: str, db: Session = Depends(ge
         db.commit()
         db.refresh(db_invoice)
         
+        ref_id = f"invoice_payment_{db_invoice.id}"
         if status.lower() == "paid":
-            ref_id = f"invoice_payment_{db_invoice.id}"
             existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
             if not existing_tx:
                 db_tx = models.Transaction(
@@ -326,18 +331,97 @@ def update_invoice_status(invoice_id: int, status: str, db: Session = Depends(ge
                 )
                 db.add(db_tx)
                 db.commit()
+        else:
+            # Reversal Sync to prevent Ghost Revenue when changing status back from paid
+            existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            if existing_tx:
+                db.delete(existing_tx)
+                db.commit()
         
         return db_invoice
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid invoice status")
 
+# Helper to map categories to Thai
+EXPENSE_CATEGORY_THAI = {
+    models.ExpenseCategory.WATER_BILL: "ค่าน้ำประปาหลวงส่วนกลาง (Water Bill)",
+    models.ExpenseCategory.ELECTRIC_BILL: "ค่าไฟฟ้าหลวงส่วนกลาง (Electric Bill)",
+    models.ExpenseCategory.SPARE_PARTS: "อะไหล่สำหรับอู่รถ (Spare Parts)",
+    models.ExpenseCategory.MAINTENANCE: "ค่าชำระซ่อมบำรุงห้องพัก/บ้านเช่า (Maintenance)",
+    models.ExpenseCategory.SALARY: "ค่าแรงช่าง/ค่าจ้างแม่บ้าน (Salary)",
+    models.ExpenseCategory.OTHER: "ค่าใช้จ่ายอื่นๆ (Other)"
+}
+
+async def send_financial_alert_to_owner(message: str):
+    owner_line_user_id = os.getenv("OWNER_LINE_USER_ID")
+    if owner_line_user_id:
+        try:
+            await get_line_bot_api().push_message(PushMessageRequest(
+                to=owner_line_user_id,
+                messages=[TextMessage(text=message)]
+            ))
+            return True
+        except Exception as e:
+            print(f"Error sending owner alert via LINE OA Push: {str(e)}")
+            
+    token = os.getenv("OWNER_LINE_NOTIFY_TOKEN")
+    if not token:
+        print("Warning: OWNER_LINE_USER_ID is not configured in .env. (LINE Notify is deprecated as of March 2025; please use OWNER_LINE_USER_ID)")
+        return False
+        
+    url = "https://notify-api.line.me/api/notify"
+    headers = {
+        "Authorization": f"Bearer {token}",
+        "Content-Type": "application/x-www-form-urlencoded"
+    }
+    payload = {"message": message}
+    
+    import httpx
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(url, headers=headers, data=payload, timeout=10.0)
+        if response.status_code == 200:
+            return True
+        else:
+            print(f"Failed to send LINE Notify: Status {response.status_code}, response: {response.text}")
+            return False
+    except Exception as e:
+        print(f"Error sending LINE Notify: {str(e)}")
+        return False
+
 # Transactions
 @app.post("/transactions/", response_model=schemas.Transaction)
-def create_transaction(transaction: schemas.TransactionCreate, db: Session = Depends(get_db)):
+async def create_transaction(transaction: schemas.TransactionCreate, db: Session = Depends(get_db)):
     db_transaction = models.Transaction(**transaction.dict())
     db.add(db_transaction)
     db.commit()
     db.refresh(db_transaction)
+    
+    # Trigger LINE Notify for hand-recorded transactions
+    time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    amount_formatted = f"{db_transaction.amount:,.2f}"
+    
+    if db_transaction.type == models.TransactionType.EXPENSE:
+        cat_thai = EXPENSE_CATEGORY_THAI.get(db_transaction.expense_category, "ทั่วไป/อื่นๆ (Other)")
+        msg = (
+            f"\n💸 [เงินออก/บันทึกรายจ่าย] บันทึกรายจ่ายสำเร็จ!\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔹 หมวดหมู่: {cat_thai}\n"
+            f"🔹 จำนวนเงิน: {amount_formatted} บาท\n"
+            f"🔹 คำอธิบาย: {db_transaction.description}\n"
+            f"🔹 เวลา: {time_str}"
+        )
+        await send_financial_alert_to_owner(msg)
+    elif db_transaction.type == models.TransactionType.INCOME:
+        msg = (
+            f"\n💰 [เงินเข้า/บันทึกมือ] บันทึกรายรับด้วยมือสำเร็จ!\n"
+            f"━━━━━━━━━━━━━━━━━━\n"
+            f"🔹 จำนวนเงิน: {amount_formatted} บาท\n"
+            f"🔹 คำอธิบาย: {db_transaction.description}\n"
+            f"🔹 เวลา: {time_str}"
+        )
+        await send_financial_alert_to_owner(msg)
+        
     return db_transaction
 
 @app.get("/transactions/", response_model=List[schemas.Transaction])
@@ -512,7 +596,35 @@ def match_business_unit(description: str, db: Session) -> Optional[models.Busine
                 return u
     return None
 
+def find_room_by_line_user_id(line_user_id: str, db: Session) -> Optional[models.DormRoom]:
+    # 1. Search in DormRoom.remark
+    room = db.query(models.DormRoom).filter(models.DormRoom.remark == line_user_id).first()
+    if room:
+        return room
+    # 2. Search in Customer
+    customer = db.query(models.Customer).filter(models.Customer.line_user_id == line_user_id).first()
+    if customer:
+        # Match Customer.name with DormRoom.tenant
+        room = db.query(models.DormRoom).filter(models.DormRoom.tenant == customer.name).first()
+        if room:
+            return room
+    return None
+
+def get_line_user_id_for_room(room: models.DormRoom, db: Session) -> Optional[str]:
+    if room.remark and room.remark.startswith("U") and len(room.remark) == 33:
+        return room.remark
+    if room.tenant:
+        customer = db.query(models.Customer).filter(
+            models.Customer.name == room.tenant,
+            models.Customer.line_user_id.isnot(None),
+            models.Customer.line_user_id != ""
+        ).first()
+        if customer:
+            return customer.line_user_id
+    return None
+
 @app.post("/webhook")
+@app.post("/webhook/")
 async def line_webhook(request: Request, db: Session = Depends(get_db)):
     signature = request.headers.get('X-Line-Signature')
     body = await request.body()
@@ -529,6 +641,69 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
         
         user_id = event.source.user_id
         text = event.message.text.strip()
+
+        if text.startswith("แจ้งซ่อม"):
+            content = text[len("แจ้งซ่อม"):].strip()
+            room_match = re.search(r'(?:ห้อง\s*|room\s*)?([a-zA-Z0-9_\-]+)', content, re.IGNORECASE)
+            room = None
+            description = content
+            
+            if room_match:
+                room_candidate = room_match.group(1).strip()
+                room = db.query(models.DormRoom).filter(models.DormRoom.number == room_candidate).first()
+                if room:
+                    description = content.replace(room_match.group(0), "", 1).strip()
+                    description = re.sub(r'^[\s\-:]+', '', description).strip()
+            
+            if not room:
+                room = find_room_by_line_user_id(user_id, db)
+            
+            if not room:
+                reply_text = (
+                    "❌ ไม่พบข้อมูลเลขห้องของท่านในระบบครับ\n\n"
+                    "กรุณาแจ้งซ่อมตามรูปแบบนี้:\n"
+                    "👉 แจ้งซ่อม [เลขห้อง] [ปัญหาที่พบ]\n"
+                    "ตัวอย่าง: แจ้งซ่อม 201 ท่อน้ำทิ้งอุดตัน\n\n"
+                    "หรือติดต่อเจ้าหน้าที่เพื่อผูกไอดี LINE กับห้องพักของท่านครับ"
+                )
+            else:
+                ticket_desc = description or "ไม่ระบุรายละเอียดปัญหา"
+                ticket = models.MaintenanceTicket(
+                    room_number=room.number,
+                    description=ticket_desc,
+                    status="pending",
+                    line_user_id=user_id,
+                    created_at=datetime.utcnow()
+                )
+                db.add(ticket)
+                db.commit()
+                db.refresh(ticket)
+                
+                alert_message = (
+                    f"\n🚨 แจ้งซ่อมปัญหาหอพัก! 🚨\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🏢 ห้องพัก: ห้อง {room.number}\n"
+                    f"👤 ผู้แจ้ง: {room.tenant or 'ไม่ระบุชื่อ'}\n"
+                    f"🔧 รายละเอียด: {ticket_desc}\n"
+                    f"📅 วันเวลา: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🔗 จัดการใบสั่งงานผ่านหน้าเว็บ ERP"
+                )
+                await send_financial_alert_to_owner(alert_message)
+                
+                reply_text = (
+                    f"📝 บันทึกใบงานแจ้งซ่อมเรียบร้อยแล้วครับ!\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🎫 ใบรับงานเลขที่: #{ticket.id}\n"
+                    f"🏢 ห้องพัก: ห้อง {ticket.room_number}\n"
+                    f"🔧 อาการชำรุด: {ticket.description}\n"
+                    f"⚙️ สถานะ: รอดำเนินการ (Pending)\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"ระบบได้ส่งการแจ้งเตือนไปยังผู้ดูแลระบบและช่างเรียบร้อยแล้ว เราจะเร่งดำเนินการตรวจสอบให้โดยเร็วที่สุดครับ ขอบคุณครับ 🙏"
+                )
+                
+            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            continue
 
         if text == "เช็คยอด":
             customer = db.query(models.Customer).filter(models.Customer.line_user_id == user_id).first()
@@ -597,14 +772,179 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
     return {"status": "ok"}
 
 @app.post("/notify/billing-reminder")
-def send_billing_reminder(db: Session = Depends(get_db)):
+async def send_billing_reminder(send_line: bool = False, db: Session = Depends(get_db)):
     unpaid_rooms = db.query(models.DormRoom).filter(models.DormRoom.payment_status != "paid", models.DormRoom.tenant != "", models.DormRoom.tenant != None).all()
     unpaid_houses = db.query(models.RentalHouse).filter(models.RentalHouse.payment_status != "paid", models.RentalHouse.tenant_name != "", models.RentalHouse.tenant_name != None).all()
     unpaid_jobs = db.query(models.GarageJob).filter(models.GarageJob.payment_status != "paid").all()
+    
+    success_count = 0
+    failed_count = 0
+    failed_rooms = []
+    
+    if send_line:
+        for room in unpaid_rooms:
+            line_user_id = get_line_user_id_for_room(room, db)
+            if not line_user_id:
+                failed_count += 1
+                failed_rooms.append(f"ห้อง {room.number} (ไม่พบ LINE ID)")
+                continue
+                
+            try:
+                total_amount = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+                bill_message = (
+                    f"🧾 ใบแจ้งยอดค่าเช่าหอพัก 🧾\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🏢 ห้องพัก: ห้อง {room.number}\n"
+                    f"👤 ผู้เช่า: {room.tenant}\n"
+                    f"📅 ประจำรอบบิล: {datetime.now().strftime('%m/%Y')}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"💵 ค่าเช่าห้อง: {room.rate:,.2f} บาท\n"
+                    f"💧 ค่าน้ำประปา: {room.water_cost:,.2f} บาท\n"
+                    f"   (มิเตอร์ {room.water_meter_prev} -> {room.water_meter})\n"
+                    f"⚡️ ค่าไฟฟ้า: {room.electric_cost:,.2f} บาท\n"
+                    f"   (มิเตอร์ {room.electricity_meter_prev} -> {room.electricity_meter})\n"
+                )
+                if room.cleaning_fee > 0:
+                    bill_message += f"🧹 ค่าทำความสะอาด: {room.cleaning_fee:,.2f} บาท\n"
+                if room.other_fee > 0:
+                    bill_message += f"📦 ค่าบริการอื่นๆ: {room.other_fee:,.2f} บาท\n"
+                if room.fine_cost > 0:
+                    bill_message += f"⚠️ ค่าปรับล่าช้า ({room.late_days} วัน): {room.fine_cost:,.2f} บาท\n"
+                    
+                bill_message += (
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"💰 ยอดรวมที่ต้องชำระ: {total_amount:,.2f} บาท\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"📌 ชำระภายในวันที่ 5 ของเดือน หลังจากนี้มีค่าปรับวันละ 100 บาท\n"
+                    f"🏦 วิธีการชำระเงิน:\n"
+                    f"กรุณาโอนเงินเข้าบัญชีธนาคาร และส่งสลิปโอนเงินเข้ามาในแชท LINE OA นี้ เพื่อให้ระบบสแกนสลิปและปรับปรุงยอดโดยอัตโนมัติครับ 🙏"
+                )
+                
+                await get_line_bot_api().push_message(PushMessageRequest(
+                    to=line_user_id,
+                    messages=[TextMessage(text=bill_message)]
+                ))
+                success_count += 1
+            except Exception as e:
+                failed_count += 1
+                failed_rooms.append(f"ห้อง {room.number} (Error: {str(e)})")
+                
     return {
-        "status": "success", "unpaid_rooms": len(unpaid_rooms), "unpaid_houses": len(unpaid_houses), "unpaid_jobs": len(unpaid_jobs),
+        "status": "success",
+        "send_line_executed": send_line,
+        "line_push_success": success_count,
+        "line_push_failed": failed_count,
+        "failed_rooms": failed_rooms,
+        "unpaid_rooms": len(unpaid_rooms),
+        "unpaid_houses": len(unpaid_houses),
+        "unpaid_jobs": len(unpaid_jobs),
         "total_unpaid": len(unpaid_rooms) + len(unpaid_houses) + len(unpaid_jobs)
     }
+
+
+@app.post("/rooms/apply-daily-fines/")
+def apply_daily_fines(force: bool = False, db: Session = Depends(get_db)):
+    today = datetime.now()
+    current_day = today.day
+    
+    # Check if we are inside the fine application period (6th of month to 24th of month)
+    # The billing period is 25th to 5th. Fines start accumulating from the 6th onwards.
+    if not force and not (6 <= current_day <= 24):
+        return {
+            "status": "skipped",
+            "message": f"ระบบงดเว้นค่าปรับในช่วงรอบจ่ายบิลปกติ (วันที่ 25 ถึง 5 ของเดือนถัดไป) ปัจจุบันคือวันที่ {current_day} (หากต้องการบังคับปรับ ให้ส่งพารามิเตอร์ force=True)",
+            "fined_rooms": []
+        }
+        
+    # Get all occupied rooms that have NOT paid
+    unpaid_rooms = db.query(models.DormRoom).filter(
+        models.DormRoom.payment_status != "paid",
+        models.DormRoom.tenant != "",
+        models.DormRoom.tenant.isnot(None)
+    ).all()
+    
+    fined_details = []
+    for room in unpaid_rooms:
+        room.late_days += 1
+        room.fine_cost += 100.0
+        fined_details.append({
+            "room_number": room.number,
+            "dorm_key": room.dorm_key,
+            "tenant": room.tenant,
+            "late_days": room.late_days,
+            "fine_cost": room.fine_cost
+        })
+        
+    db.commit()
+    
+    return {
+        "status": "success",
+        "message": f"คำนวณและบันทึกค่าปรับสะสมล่าช้าเรียบร้อยแล้ว (บวกเพิ่มวันละ 100 บาท)",
+        "fined_count": len(unpaid_rooms),
+        "fined_rooms": fined_details
+    }
+
+# Maintenance Tickets Endpoints
+@app.get("/maintenance-tickets/", response_model=List[schemas.MaintenanceTicket])
+def read_maintenance_tickets(db: Session = Depends(get_db)):
+    return db.query(models.MaintenanceTicket).order_by(models.MaintenanceTicket.created_at.desc()).all()
+
+@app.patch("/maintenance-tickets/{ticket_id}/", response_model=schemas.MaintenanceTicket)
+async def update_maintenance_ticket(ticket_id: int, ticket_update: schemas.MaintenanceTicketUpdate, db: Session = Depends(get_db)):
+    ticket = db.query(models.MaintenanceTicket).filter(models.MaintenanceTicket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Maintenance ticket not found")
+        
+    if ticket_update.status is not None:
+        old_status = ticket.status
+        ticket.status = ticket_update.status
+        if ticket_update.status == "resolved":
+            ticket.resolved_at = datetime.utcnow()
+        else:
+            ticket.resolved_at = None
+            
+        # Send LINE notification to tenant if status changed and line_user_id is available
+        if ticket.line_user_id and old_status != ticket.status:
+            status_thai = {
+                "pending": "รอดำเนินการ (Pending)",
+                "in_progress": "กำลังดำเนินการ (In Progress)",
+                "resolved": "แก้ไขเรียบร้อยแล้ว (Resolved)"
+            }.get(ticket.status, ticket.status)
+            
+            status_message = ""
+            if ticket.status == "in_progress":
+                status_message = (
+                    f"🔧 อัปเดตสถานะแจ้งซ่อม ใบงาน #{ticket.id} 🔧\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🏢 ห้องพัก: ห้อง {ticket.room_number}\n"
+                    f"🔧 รายการชำรุด: {ticket.description}\n"
+                    f"⚙️ สถานะใหม่: {status_thai}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"ช่างผู้เชี่ยวชาญกำลังเข้าไปดำเนินการตรวจสอบและแก้ไขปัญหาให้ท่านแล้วครับ ขออภัยในความไม่สะดวกครับ 🙏"
+                )
+            elif ticket.status == "resolved":
+                status_message = (
+                    f"✅ ปัญหาของคุณได้รับการแก้ไขแล้ว! ใบงาน #{ticket.id} ✅\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🏢 ห้องพัก: ห้อง {ticket.room_number}\n"
+                    f"🔧 รายการชำรุด: {ticket.description}\n"
+                    f"⚙️ สถานะใหม่: {status_thai}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"ทีมงานได้ทำการซ่อมแซมและแก้ไขปัญหาดังกล่าวเรียบร้อยแล้ว หากพบข้อบกพร่องหรือมีคำขอเพิ่มเติม สามารถพิมพ์แจ้งเข้ามาได้ทันทีครับ ขอบคุณที่ใช้บริการครับ 😊"
+                )
+                
+            if status_message:
+                try:
+                    await get_line_bot_api().push_message(PushMessageRequest(
+                        to=ticket.line_user_id,
+                        messages=[TextMessage(text=status_message)]
+                    ))
+                except Exception as e:
+                    print(f"Failed to send LINE status update to user {ticket.line_user_id}: {e}")
+                    
+    db.commit()
+    db.refresh(ticket)
+    return ticket
 
 # Dormitory Endpoints
 @app.get("/rooms/", response_model=List[schemas.DormRoom])
@@ -628,17 +968,26 @@ def update_room(dorm_key: str, number: str, room_update: schemas.DormRoomUpdate,
         print(f"DEBUG: Error updating room: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
+    current_month_key = datetime.now().strftime("%Y-%m")
+    ref_id = f"dorm_payment_{room.id}_{current_month_key}"
+    
     if room.payment_status == "paid" and old_status != "paid" and room.tenant:
         total_bill = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
         if total_bill > 0:
             unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first()
-            current_month_key = datetime.now().strftime("%Y-%m")
-            ref_id = f"dorm_payment_{room.id}_{current_month_key}"
             if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
                 db.add(models.Transaction(type=models.TransactionType.INCOME, amount=total_bill, description=f"ค่าเช่าห้อง {room.number} รอบเดือน {current_month_key} - {room.tenant}", reference_id=ref_id, unit_id=unit.id if unit else None))
             if not db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == current_month_key).first():
                 db.add(models.DormPayment(room_id=room.id, month=current_month_key, amount=room.rate, water_cost=room.water_cost, electric_cost=room.electric_cost, cleaning_fee=room.cleaning_fee, other_fee=room.other_fee, fine_cost=room.fine_cost, payment_status="paid", paid_at=datetime.utcnow()))
             db.commit()
+    elif room.payment_status != "paid" and old_status == "paid":
+        tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+        if tx:
+            db.delete(tx)
+        pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == current_month_key).first()
+        if pmt:
+            db.delete(pmt)
+        db.commit()
     return room
 
 @app.post("/rooms/rollover/")
@@ -680,11 +1029,16 @@ def update_garage_job(job_id: int, job_update: schemas.GarageJobUpdate, db: Sess
     for key, value in job_update.dict(exclude_unset=True).items(): setattr(db_job, key, value)
     if db_job.status in ["finished", "picked_up"] and not db_job.finished_at: db_job.finished_at = datetime.utcnow()
     db.commit(); db.refresh(db_job)
+    ref_id = f"garage_payment_{db_job.id}"
     if db_job.payment_status == "paid" and old_status != "paid" and db_job.total_cost > 0:
         unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.GARAGE).first()
-        ref_id = f"garage_payment_{db_job.id}"
         if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
             db.add(models.Transaction(type=models.TransactionType.INCOME, amount=db_job.total_cost, description=f"ค่าซ่อมรถ {db_job.license_plate}", reference_id=ref_id, unit_id=unit.id if unit else None))
+            db.commit()
+    elif db_job.payment_status != "paid" and old_status == "paid":
+        tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+        if tx:
+            db.delete(tx)
             db.commit()
     return db_job
 
@@ -692,6 +1046,10 @@ def update_garage_job(job_id: int, job_update: schemas.GarageJobUpdate, db: Sess
 def delete_garage_job(job_id: int, db: Session = Depends(get_db)):
     db_job = db.query(models.GarageJob).filter(models.GarageJob.id == job_id).first()
     if not db_job: raise HTTPException(status_code=404, detail="Job not found")
+    ref_id = f"garage_payment_{db_job.id}"
+    tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+    if tx:
+        db.delete(tx)
     db.delete(db_job); db.commit()
     return {"status": "success"}
 
@@ -707,17 +1065,26 @@ def update_rental_house(house_id: str, house_update: schemas.RentalHouseUpdate, 
     old_status = db_house.payment_status
     for key, value in house_update.dict(exclude_unset=True).items(): setattr(db_house, key, value)
     db.commit(); db.refresh(db_house)
+    current_month_key = datetime.now().strftime("%Y-%m")
+    ref_id = f"house_payment_{db_house.id}_{current_month_key}"
+    
     if db_house.payment_status == "paid" and old_status != "paid" and db_house.tenant_name:
         total = db_house.monthly_rent + db_house.water_bill + db_house.electric_bill
         if total > 0:
             unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.name == db_house.name).first() or db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.HOUSE).first()
-            current_month_key = datetime.now().strftime("%Y-%m")
-            ref_id = f"house_payment_{db_house.id}_{current_month_key}"
             if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
                 db.add(models.Transaction(type=models.TransactionType.INCOME, amount=total, description=f"ค่าเช่าบ้าน {db_house.name} รอบ {current_month_key}", reference_id=ref_id, unit_id=unit.id if unit else None))
             if not db.query(models.HousePayment).filter(models.HousePayment.house_id == db_house.id, models.HousePayment.month == current_month_key).first():
                 db.add(models.HousePayment(house_id=db_house.id, month=current_month_key, amount=db_house.monthly_rent, water_bill=db_house.water_bill, electric_bill=db_house.electric_bill, payment_status="paid", paid_at=datetime.utcnow()))
             db.commit()
+    elif db_house.payment_status != "paid" and old_status == "paid":
+        tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+        if tx:
+            db.delete(tx)
+        pmt = db.query(models.HousePayment).filter(models.HousePayment.house_id == db_house.id, models.HousePayment.month == current_month_key).first()
+        if pmt:
+            db.delete(pmt)
+        db.commit()
     return db_house
 
 # Lease Agreement Endpoints
@@ -791,59 +1158,273 @@ def update_business_unit(unit_id: int, unit_update: schemas.BusinessUnitCreate, 
 def delete_business_unit(unit_id: int, db: Session = Depends(get_db)):
     db_unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.id == unit_id).first()
     if not db_unit: raise HTTPException(status_code=404, detail="Not found")
+    
+    # Cascade check to protect database and bookkeeping integrity
+    has_rooms = db.query(models.DormRoom).filter(models.DormRoom.dorm_key == db_unit.name).first()
+    has_houses = db.query(models.RentalHouse).filter(models.RentalHouse.name == db_unit.name).first()
+    has_invoices = db.query(models.Invoice).filter(models.Invoice.unit_id == unit_id).first()
+    has_tx = db.query(models.Transaction).filter(models.Transaction.unit_id == unit_id).first()
+    
+    if has_rooms or has_houses or has_invoices or has_tx:
+        raise HTTPException(status_code=400, detail="ไม่สามารถลบหน่วยธุรกิจนี้ได้ เนื่องจากมีข้อมูลห้องพัก บ้านพัก บิลเรียกเก็บเงิน หรือรายการธุรกรรมเชื่อมโยงอยู่ในระบบบัญชีแยกประเภท (กรุณายกเลิกหรือย้ายข้อมูลที่เกี่ยวข้องก่อนเพื่อรักษาความถูกต้องของข้อมูล)")
+        
     db.delete(db_unit); db.commit(); return {"status": "success"}
 
-# Mock Slip Verification API
+# Real-time Slip Verification API with SlipOK Integration
 @app.post("/payment/verify-slip/")
-async def verify_slip(type: str, target_id: str, db: Session = Depends(get_db)):
+async def verify_slip(type: str, target_id: str, qr_data: Optional[str] = None, db: Session = Depends(get_db)):
     import random
-    ref_no = "".join([str(random.randint(0, 9)) for _ in range(18)])
+    import httpx
+    
+    # 1. Calculate Expected Amount and Get Object References
+    expected_amount = 0.0
     current_month_key = datetime.now().strftime("%Y-%m")
+    
+    room = None
+    house = None
+    job = None
+    invoice = None
     
     if type == "dorm":
         room = db.query(models.DormRoom).filter(models.DormRoom.id == int(target_id)).first()
-        if not room: raise HTTPException(status_code=404, detail="Not found")
-        if room.payment_status == "paid": return {"status": "already_paid"}
-        total = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
-        room.payment_status = "paid"; room.payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ref_id = f"dorm_payment_{room.id}_{current_month_key}"
-        if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
-            db.add(models.Transaction(type=models.TransactionType.INCOME, amount=total, description=f"ค่าเช่าห้อง {room.number} รอบ {current_month_key}", reference_id=ref_id, unit_id=(lambda u: u.id if u else None)(db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first())))
-        if not db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == current_month_key).first():
-            db.add(models.DormPayment(room_id=room.id, month=current_month_key, amount=room.rate, water_cost=room.water_cost, electric_cost=room.electric_cost, cleaning_fee=room.cleaning_fee, other_fee=room.other_fee, fine_cost=room.fine_cost, payment_status="paid", paid_at=datetime.utcnow()))
-        db.commit(); return {"status": "success", "amount": total, "ref_no": ref_no}
+        if not room: raise HTTPException(status_code=404, detail="Room not found")
+        if room.payment_status == "paid": 
+            # Fetch existing ref_no to keep it consistent
+            ref_id = f"dorm_payment_{room.id}_{current_month_key}"
+            tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            return {"status": "already_paid", "amount": room.rate, "ref_no": tx.reference_id if tx else "ALREADY_PAID"}
+        expected_amount = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
         
     elif type == "house":
         house = db.query(models.RentalHouse).filter(models.RentalHouse.id == target_id).first()
-        if not house: raise HTTPException(status_code=404, detail="Not found")
-        if house.payment_status == "paid": return {"status": "already_paid"}
-        total = house.monthly_rent + house.water_bill + house.electric_bill
-        house.payment_status = "paid"; house.last_payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        ref_id = f"house_payment_{house.id}_{current_month_key}"
-        if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
-            db.add(models.Transaction(type=models.TransactionType.INCOME, amount=total, description=f"ค่าเช่าบ้าน {house.name} รอบ {current_month_key}", reference_id=ref_id, unit_id=(lambda u: u.id if u else None)(db.query(models.BusinessUnit).filter(models.BusinessUnit.name == house.name).first() or db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.HOUSE).first())))
-        if not db.query(models.HousePayment).filter(models.HousePayment.house_id == house.id, models.HousePayment.month == current_month_key).first():
-            db.add(models.HousePayment(house_id=house.id, month=current_month_key, amount=house.monthly_rent, water_bill=house.water_bill, electric_bill=house.electric_bill, payment_status="paid", paid_at=datetime.utcnow()))
-        db.commit(); return {"status": "success", "amount": total, "ref_no": ref_no}
+        if not house: raise HTTPException(status_code=404, detail="House not found")
+        if house.payment_status == "paid":
+            ref_id = f"house_payment_{house.id}_{current_month_key}"
+            tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            return {"status": "already_paid", "amount": house.monthly_rent, "ref_no": tx.reference_id if tx else "ALREADY_PAID"}
+        expected_amount = house.monthly_rent + house.water_bill + house.electric_bill
         
     elif type == "garage":
         job = db.query(models.GarageJob).filter(models.GarageJob.id == int(target_id)).first()
-        if not job: raise HTTPException(status_code=404, detail="Not found")
-        if job.payment_status == "paid": return {"status": "already_paid"}
-        job.payment_status = "paid"; job.status = "picked_up"
-        ref_id = f"garage_payment_{job.id}"
-        if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
-            db.add(models.Transaction(type=models.TransactionType.INCOME, amount=job.total_cost, description=f"ค่าซ่อมรถ {job.license_plate}", reference_id=ref_id, unit_id=(lambda u: u.id if u else None)(db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.GARAGE).first())))
-        db.commit(); return {"status": "success", "amount": job.total_cost, "ref_no": ref_no}
+        if not job: raise HTTPException(status_code=404, detail="Job not found")
+        if job.payment_status == "paid":
+            ref_id = f"garage_payment_{job.id}"
+            tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            return {"status": "already_paid", "amount": job.total_cost, "ref_no": tx.reference_id if tx else "ALREADY_PAID"}
+        expected_amount = job.total_cost
         
     elif type == "invoice":
         invoice = db.query(models.Invoice).filter(models.Invoice.id == int(target_id)).first()
-        if not invoice: raise HTTPException(status_code=404, detail="Not found")
-        if invoice.status == models.InvoiceStatus.PAID: return {"status": "already_paid"}
-        invoice.status = models.InvoiceStatus.PAID
-        ref_id = f"invoice_payment_{invoice.id}"
-        if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
-            db.add(models.Transaction(type=models.TransactionType.INCOME, amount=invoice.amount, description=f"ชำระบิล: {invoice.title}", reference_id=ref_id, unit_id=invoice.unit_id, customer_id=invoice.customer_id))
-        db.commit(); return {"status": "success", "amount": invoice.amount, "ref_no": ref_no}
+        if not invoice: raise HTTPException(status_code=404, detail="Invoice not found")
+        if invoice.status == models.InvoiceStatus.PAID:
+            ref_id = f"invoice_payment_{invoice.id}"
+            tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            return {"status": "already_paid", "amount": invoice.amount, "ref_no": tx.reference_id if tx else "ALREADY_PAID"}
+        expected_amount = invoice.amount
+    else:
+        raise HTTPException(status_code=400, detail="Invalid payment type")
+        
+    # 2. Check SlipOK API Configuration
+    slipok_api_key = os.getenv("SLIPOK_API_KEY")
+    slipok_branch_id = os.getenv("SLIPOK_BRANCH_ID", "0")
     
-    raise HTTPException(status_code=400, detail="Invalid type")
+    ref_no = ""
+    sender_name = "ผู้เช่าในระบบ"
+    receiver_name = "หอพัก/บริษัท"
+    
+    if slipok_api_key:
+        # PRODUCTION MODE: Real verification with SlipOK API
+        if not qr_data:
+            raise HTTPException(
+                status_code=400, 
+                detail="ระบบอยู่ในโหมดใช้งานจริง (Production Mode) ซึ่งจำเป็นต้องใช้ข้อมูล QR Code จากตัวสลิปจริงเพื่อยืนยันกับ SlipOK API กรุณาสแกนหรือระบุข้อมูล QR Code"
+            )
+            
+        url = f"https://api.slipok.com/api/line/apikey/{slipok_branch_id}"
+        headers = {
+            "x-authorization": slipok_api_key,
+            "Content-Type": "application/json"
+        }
+        payload = {
+            "data": qr_data,
+            "amount": float(expected_amount)
+        }
+        
+        try:
+            async with httpx.AsyncClient() as client:
+                response = await client.post(url, headers=headers, json=payload, timeout=10.0)
+            
+            if response.status_code != 200:
+                raise HTTPException(
+                    status_code=400, 
+                    detail=f"การเชื่อมต่อกับ SlipOK API ล้มเหลว (HTTP {response.status_code}): {response.text}"
+                )
+                
+            res_json = response.json()
+        except httpx.RequestError as exc:
+            raise HTTPException(
+                status_code=500, 
+                detail=f"เกิดข้อผิดพลาดเครือข่ายระหว่างเชื่อมต่อกับ SlipOK API: {str(exc)}"
+            )
+            
+        # Parse Response
+        success = res_json.get("success", False)
+        data = res_json.get("data", {})
+        is_valid = success and (data.get("success", True) if isinstance(data, dict) else True)
+        
+        if not is_valid:
+            error_msg = res_json.get("message") or (data.get("message") if isinstance(data, dict) else None) or "สลิปโอนเงินไม่ผ่านการตรวจสอบความถูกต้อง"
+            raise HTTPException(status_code=400, detail=f"การตรวจสอบสลิปล้มเหลว: {error_msg}")
+            
+        # Extract Verification Details
+        ref_no = data.get("transRef")
+        if not ref_no:
+            raise HTTPException(status_code=400, detail="ไม่พบรหัสอ้างอิงธุรกรรม (Transaction Reference) ในสลิป")
+            
+        # Duplicate Prevention Checklist
+        existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_no).first()
+        if existing_tx:
+            raise HTTPException(
+                status_code=400, 
+                detail="ตรวจพบความเสี่ยงด้านความปลอดภัย: สลิปการโอนเงินนี้ (Ref No.) เคยถูกนำมาบันทึกชำระเงินในระบบไปแล้ว ไม่สามารถใช้งานซ้ำได้เพื่อป้องกันการโกงยอดเงิน"
+            )
+            
+        sender_name = data.get("sender", {}).get("displayName") or data.get("sender", {}).get("name") or "ผู้โอนเงินจริง"
+        receiver_name = data.get("receiver", {}).get("displayName") or data.get("receiver", {}).get("name") or "หอพัก/บริษัท"
+        amount_paid = data.get("amount", 0.0)
+        
+        # Verify Amount Correctness
+        if abs(float(amount_paid) - float(expected_amount)) > 0.01:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"ยอดเงินในสลิปจริง ({amount_paid:,.2f} บาท) ไม่สอดคล้องกับยอดเงินที่ต้องชำระในระบบ ({expected_amount:,.2f} บาท)"
+            )
+            
+    else:
+        # SANDBOX / FALLBACK MODE: Intelligent Simulation with constraints
+        ref_no = f"SIM-SLIP-{datetime.now().strftime('%Y%m%d')}-" + "".join([str(random.randint(0, 9)) for _ in range(6)])
+        
+        while db.query(models.Transaction).filter(models.Transaction.reference_id == ref_no).first():
+            ref_no = f"SIM-SLIP-{datetime.now().strftime('%Y%m%d')}-" + "".join([str(random.randint(0, 9)) for _ in range(6)])
+            
+        sender_name = "ผู้เช่าจำลอง (โหมดทดสอบ)"
+        receiver_name = "บริษัท ซอฟเวอเรน โวลต์ จำกัด (โหมดทดสอบ)"
+        
+    # 3. Apply Bookkeeping Changes & Persist Records
+    if type == "dorm" and room:
+        room.payment_status = "paid"
+        room.payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Create consolidated ledger entry using verified ref_no as reference_id
+        db.add(models.Transaction(
+            type=models.TransactionType.INCOME, 
+            amount=expected_amount, 
+            description=f"ค่าเช่าห้อง {room.number} รอบ {current_month_key} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})", 
+            reference_id=ref_no, 
+            unit_id=(lambda u: u.id if u else None)(db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first())
+        ))
+            
+        if not db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == current_month_key).first():
+            db.add(models.DormPayment(
+                room_id=room.id, 
+                month=current_month_key, 
+                amount=room.rate, 
+                water_cost=room.water_cost, 
+                electric_cost=room.electric_cost, 
+                cleaning_fee=room.cleaning_fee, 
+                other_fee=room.other_fee, 
+                fine_cost=room.fine_cost, 
+                payment_status="paid", 
+                paid_at=datetime.utcnow()
+            ))
+            
+    elif type == "house" and house:
+        house.payment_status = "paid"
+        house.last_payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        # Create consolidated ledger entry
+        db.add(models.Transaction(
+            type=models.TransactionType.INCOME, 
+            amount=expected_amount, 
+            description=f"ค่าเช่าบ้าน {house.name} รอบ {current_month_key} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})", 
+            reference_id=ref_no, 
+            unit_id=(lambda u: u.id if u else None)(db.query(models.BusinessUnit).filter(models.BusinessUnit.name == house.name).first() or db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.HOUSE).first())
+        ))
+        
+        if not db.query(models.HousePayment).filter(models.HousePayment.house_id == house.id, models.HousePayment.month == current_month_key).first():
+            db.add(models.HousePayment(
+                house_id=house.id, 
+                month=current_month_key, 
+                amount=house.monthly_rent, 
+                water_bill=house.water_bill, 
+                electric_bill=house.electric_bill, 
+                payment_status="paid", 
+                paid_at=datetime.utcnow()
+            ))
+            
+    elif type == "garage" and job:
+        job.payment_status = "paid"
+        job.status = "picked_up"
+        job.finished_at = datetime.utcnow()
+        
+        # Create consolidated ledger entry
+        db.add(models.Transaction(
+            type=models.TransactionType.INCOME, 
+            amount=expected_amount, 
+            description=f"ค่าซ่อมรถ {job.license_plate} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})", 
+            reference_id=ref_no, 
+            unit_id=(lambda u: u.id if u else None)(db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.GARAGE).first())
+        ))
+        
+    elif type == "invoice" and invoice:
+        invoice.status = models.InvoiceStatus.PAID
+        
+        # Create consolidated ledger entry
+        db.add(models.Transaction(
+            type=models.TransactionType.INCOME, 
+            amount=expected_amount, 
+            description=f"ชำระบิล: {invoice.title} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})", 
+            reference_id=ref_no, 
+            unit_id=invoice.unit_id, 
+            customer_id=invoice.customer_id
+        ))
+        
+    db.commit()
+    
+    # Send real-time LINE notification to owner
+    biz_type_thai = "รายรับการชำระเงิน"
+    details_str = ""
+    if type == "dorm" and room:
+        biz_type_thai = "ค่าเช่าห้องพัก (Dormitory)"
+        details_str = f"ห้องพักหมายเลข: {room.number} (ชั้น {room.floor})"
+    elif type == "house" and house:
+        biz_type_thai = "ค่าเช่าบ้านพัก (Rental House)"
+        details_str = f"บ้านเช่า: {house.name}"
+    elif type == "garage" and job:
+        biz_type_thai = "ค่าบริการซ่อมรถอู่ (Garage Job)"
+        details_str = f"รถยนต์: {job.license_plate} ({job.car_model})"
+    elif type == "invoice" and invoice:
+        biz_type_thai = "บิลทั่วไป (Invoice)"
+        details_str = f"รายการ: {invoice.title}"
+
+    time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    msg = (
+        f"\n💰 [เงินเข้าผ่าน SlipOK] ตรวจพบยอดชำระสำเร็จ!\n"
+        f"━━━━━━━━━━━━━━━━━━\n"
+        f"🔹 ธุรกิจ: {biz_type_thai}\n"
+        f"🔹 รายละเอียด: {details_str}\n"
+        f"🔹 ยอดโอนจริง: {expected_amount:,.2f} บาท\n"
+        f"🔹 ผู้โอนเงิน: {sender_name}\n"
+        f"🔹 รหัสอ้างอิงสลิป: {ref_no}\n"
+        f"🔹 เวลาที่บันทึก: {time_str}"
+    )
+    await send_financial_alert_to_owner(msg)
+    
+    return {
+        "status": "success", 
+        "amount": expected_amount, 
+        "ref_no": ref_no,
+        "sender": sender_name,
+        "receiver": receiver_name,
+        "message": "สแกนและตรวจสอบข้อมูลกับระบบธนาคารเรียบร้อยแล้ว" if slipok_api_key else "ตรวจสอบสลิปสำเร็จ (โหมดทดสอบจำลอง Sandbox)"
+    }

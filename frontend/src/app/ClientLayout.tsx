@@ -1,8 +1,10 @@
 "use client";
 
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import Link from 'next/link';
 import SidebarLinks from "./SidebarLinks";
+import { useAuth } from "@/lib/useAuth";
+import { useEffect } from "react";
 
 export default function ClientLayout({
   children,
@@ -10,10 +12,35 @@ export default function ClientLayout({
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
+  const router = useRouter();
+  const { isAuthenticated, logout } = useAuth();
   const isLoginPage = pathname === "/login";
+
+  useEffect(() => {
+    if (isAuthenticated === false && !isLoginPage) {
+      router.push("/login");
+    }
+  }, [isAuthenticated, isLoginPage, router]);
 
   if (isLoginPage) {
     return <div className="w-full min-h-screen">{children}</div>;
+  }
+
+  // Prevent flash of protected content by rendering a premium dark loading spinner during checks
+  if (isAuthenticated === null) {
+    return (
+      <div className="w-full min-h-screen flex items-center justify-center bg-[#0a0e27]">
+        <div className="flex flex-col items-center gap-3">
+          <div className="w-10 h-10 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+          <p className="text-slate-400 text-sm font-semibold tracking-wide">กำลังตรวจสอบสิทธิ์...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Render a blank screen to block unauthorized renders before redirection completes
+  if (isAuthenticated === false) {
+    return <div className="w-full min-h-screen bg-[#0a0e27]" />;
   }
 
   return (
@@ -39,15 +66,28 @@ export default function ClientLayout({
         </nav>
         
         <div className="p-4 border-t border-slate-100">
-          <div className="flex items-center gap-3 p-2 rounded-xl hover:bg-slate-50 transition cursor-pointer">
-            <div className="w-9 h-9 rounded-full bg-indigo-100 border-2 border-white shadow-sm flex items-center justify-center text-indigo-700 font-bold text-sm">
-              AD
+          <button 
+            onClick={() => {
+              if (window.confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
+                logout();
+              }
+            }}
+            title="คลิกเพื่อออกจากระบบ"
+            className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-red-50 text-slate-700 hover:text-red-600 transition group cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-9 h-9 rounded-full bg-indigo-100 border-2 border-white shadow-sm flex items-center justify-center text-indigo-700 group-hover:bg-red-100 group-hover:text-red-700 transition font-bold text-sm">
+                AD
+              </div>
+              <div className="flex flex-col text-left">
+                <span className="text-xs font-bold">Admin User</span>
+                <span className="text-[10px] text-slate-500">Owner</span>
+              </div>
             </div>
-            <div className="flex flex-col">
-              <span className="text-xs font-bold text-slate-800">Admin User</span>
-              <span className="text-[10px] text-slate-500">Owner</span>
-            </div>
-          </div>
+            <svg className="w-4 h-4 opacity-40 group-hover:opacity-100 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+            </svg>
+          </button>
         </div>
       </aside>
 
