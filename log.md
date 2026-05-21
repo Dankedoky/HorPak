@@ -1,5 +1,16 @@
 # Activity Log
 
+## [2026-05-21] LINE OA Auto-Reply Customization & Automated SlipOK Verification
+- **Automated Direct Slip Verification:** Implemented 100% automated slip verification inside the LINE Webhook image handler. If a bound tenant sends a slip image directly in the chat, the system fetches the binary file, calculates the expected outstanding balance (rent + utilities + late fines), and calls the SlipOK API (or simulates it in Sandbox mode) to verify and book the receipt in the ledger, replying with dynamic success/failure templates.
+- **Dedicated Keyword Triggers:** Programmed robust text matches for exact keywords `"แจ้งซ่อม"` and `"แจ้งโอนเงิน"`, dynamically serving custom instructions and support details in full compliance with the user's drafted auto-reply assets.
+- **Compile Verification:** Successfully verified the FastAPI python compilation (`python -m py_compile main.py`) with zero syntax errors.
+
+## [2026-05-21] LINE OA Auto-Binding Registration Implementation
+- **Dynamic Greeting Message Auto-Binding:** Added a flexible, robust regex-based parser to the LINE Webhook handler in `backend/main.py` that intercepts messages matching the pattern `[Nickname] หอ [DormKey] ห้อง [RoomNumber]` (e.g. `"แก้ว หอ 26/20 ห้อง 302"`).
+- **Relational Line ID Binding:** Automates room and customer mapping. It locates the matching `DormRoom` via normalized `dorm_key` (e.g. `26/20` -> `26_20`) and room number, sets `DormRoom.remark` to the tenant's `line_user_id`, and creates or updates a centralized `Customer` record under the `DORMITORY` business unit.
+- **Relational Integrity Guards:** Prevents double-binding or unique constraint violations by automatically unlinking any old rooms or customer records associated with the registering `line_user_id` when they register a new room.
+- **Compile Verification:** Successfully verified the FastAPI python compilation (`python -m py_compile main.py`) with zero syntax errors.
+
 ## [2026-05-21] Phase 2: LINE OA Billing Reminders & Interactive Maintenance System Implementation
 - **1-Click LINE OA Billing Dispatcher:** Fully integrated the bulk billing reminders dispatcher directly on the main dashboard modal. Built robust loading, spinner, success metrics, and non-linked room listings that trigger POST `/notify/billing-reminder?send_line=true` with safety controls.
 - **Interactive Maintenance Ticket Dashboard:** Created a stunning Next.js premium, glassmorphic dashboard `/maintenance` protected by auth rules. Shows real-time statistics (KPI cards) of tickets reported via LINE OA, supports text searches, and provides interactive control transitions (`pending` -> `in_progress` -> `resolved`) that automatically sync and dispatch push notification updates back to the tenant's LINE account.
@@ -166,5 +177,14 @@
 - **Compiler Verification:** Successfully compiled all Python backend modules (`main.py`, `models.py`, `schemas.py`, `database.py`) using `py_compile`, ensuring 0 syntax or runtime import errors.
 - **Next.js Production Build Validation:** Executed a full production Next.js build check, verifying 100% compilation success in under 5 seconds with no TypeScript typing or static generation mismatches.
 - **Financial Audit Analysis:** Performed a detailed logic flow audit on backend transaction pipelines. Identified key improvements for financial integrity including transaction reversal syncing on paid-to-pending toggles, cascade deletion ledger updates, and suggestions for real-time Slip Verification API integrations.
+
+## [2026-05-21] Phase 3: Utility Margin Analytics (ระบบวิเคราะห์กำไรค่าน้ำไฟ) Implementation
+- **FastAPI Backend Endpoint:** Created Pydantic schemas (`UtilityItem` & `UtilityAnalyticsResponse`) and the `/transactions/utility-analytics/` endpoint in `main.py`. Aggregates billing records (collected from paid `DormPayment` and `HousePayment`) against expenses (actual bills paid to water/electricity authorities from `Transaction` categories `WATER_BILL`/`ELECTRIC_BILL`) grouped by month dynamically inside Python, ensuring 100% database compatibility with both local SQLite and production Supabase PostgreSQL.
+- **Interactive Reports Page Upgrade:** Overhauled `reports/page.tsx` with a dual-tab layout (Financial Overview and Utility Margin Analytics) designed under glassmorphic dark-accent styles:
+  - **KPI Status Boards:** Generates live metrics for total collected, gov paid, net margins, and margin percentage. Displays active glowing indicators (`🟢 กำไรสะสม` or `🔴 ขับทุนสะสม`) based on profit metrics.
+  - **Interactive SVG Double Bar Charts:** Renders beautiful, fully dynamic, responsive double bar charts using styled raw React SVG with linear gradients (Blue/Slate for Water, Amber/Rose for Electricity) and hover tooltips displaying 6-month comparisons.
+  - **Intelligent Business Operations Advice Board:** Dynamically renders operations suggestions in Thai depending on margins, with a direct settings configuration link to resolve net-loss rates.
+- **Production Build & Compilation Checks:** Executed Next.js production build (`npm run build`) and verified 100% compilation success with zero TypeScript errors or linter warnings. Checked Python files using `py_compile` with 0 issues.
+
 
 

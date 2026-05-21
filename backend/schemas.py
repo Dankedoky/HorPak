@@ -369,4 +369,17 @@ class MaintenanceTicket(MaintenanceTicketBase):
     class Config:
         from_attributes = True
 
+# Utility Analytics Schemas
+class UtilityItem(BaseModel):
+    month: str              # e.g., "2026-05"
+    collected: float        # Collected from tenants
+    gov_paid: float         # Paid to government (actual bills)
+    margin: float           # collected - gov_paid
+    margin_pct: float       # profit margin percentage
+
+class UtilityAnalyticsResponse(BaseModel):
+    water: List[UtilityItem]
+    electricity: List[UtilityItem]
+
+
 

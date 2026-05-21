@@ -24,17 +24,19 @@ A unified accounting and management system for Dormitory, Garage, and Rental Hou
 - ✅ **Production-Ready SlipOK API Verification:** Integrated live slip verification via SlipOK in backend `/payment/verify-slip/` with duplicate slip check (`transRef` check) and elegant fallback.
 - ✅ **Cascade & Orphan Deletion Protection:** Blocked deletion of Customers and Business Units that have associated ledger history, and implemented auto-clean cascades for Garage Jobs.
 - ✅ **Production Ready:** Full Dockerization and environment configuration templates.
+- ✅ **Utility Margin Analytics (Phase 3):** Developed an advanced bilingual (Thai/English) visual analysis dashboard showing 6-month historical comparisons of water/electricity charges collected from tenants against government bills paid, supported by interactive responsive SVG Double Bar Charts and a smart dynamic Operations Advisor panel.
 
 ## Completed Tasks (Recent)
-1. **Phase 2 Complete:** Implemented both 1-Click LINE OA Billing Reminders and the Interactive Maintenance Ticket system.
-2. **Private Family ERP & Hyper-Automation Blueprint:** Formulated a complete architectural blueprint and roadmap (`erp_roadmap.md`) mapping restricted access control, LINE OA billing notifications (25th - 5th), daily late fines of 100 THB after the 5th, room maintenance ticketing, and real-time family LINE notification systems.
-3. **Financial Integrity & Reversal Sync:** Implemented automatic transaction reversals for Rooms, Houses, Garage Jobs, and Invoices.
-3. **SlipOK Integration:** Connected the backend verification endpoint to SlipOK API with duplicate detection.
-4. **Relational Deletion Protection:** Secured Customers and Business Units from being hard-deleted when they have active financial records.
-5. **Customer Management Module:** Built a professional UI for managing customers with full CRUD and search.
+1. **Phase 3 Complete:** Implemented and integrated the Utility Margin Analytics backend endpoint (`/transactions/utility-analytics/`) and the interactive Next.js dual-tab reports dashboard.
+2. **Phase 2 Complete:** Implemented both 1-Click LINE OA Billing Reminders and the Interactive Maintenance Ticket system.
+3. **Private Family ERP & Hyper-Automation Blueprint:** Formulated a complete architectural blueprint and roadmap (`erp_roadmap.md`) mapping restricted access control, LINE OA billing notifications (25th - 5th), daily late fines of 100 THB after the 5th, room maintenance ticketing, and real-time family LINE notification systems.
+4. **Financial Integrity & Reversal Sync:** Implemented automatic transaction reversals for Rooms, Houses, Garage Jobs, and Invoices.
+5. **SlipOK Integration:** Connected the backend verification endpoint to SlipOK API with duplicate detection.
+6. **Relational Deletion Protection:** Secured Customers and Business Units from being hard-deleted when they have active financial records.
+7. **Customer Management Module:** Built a professional UI for managing customers with full CRUD and search.
 
 ## Future Recommendations
-1. **Utility Bill Comparison Metrics:** Implement a visual widget comparing the total utility collected from tenants against actual utility expenses paid out to authorities.
-2. **Room Occupancy Statuses:** Enforce explicit occupancy statuses (Vacant, Under Cleaning, Booked with Deposit) to ease family communication.
-3. **Granular RBAC System:** Establish Role-Based Access Control to partition administrative rights between family owners (full balance views) and property workers.
+1. **Room Occupancy Statuses:** Enforce explicit occupancy statuses (Vacant, Under Cleaning, Booked with Deposit) to ease family communication.
+2. **Granular RBAC System:** Establish Role-Based Access Control to partition administrative rights between family owners (full balance views) and property workers.
+3. **Multi-Property Billing Templates:** Allow custom billing layouts and templates for different dormitory properties.
 

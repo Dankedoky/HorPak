@@ -11,7 +11,7 @@ import models, schemas, database
 from auth import create_token, LoginRequest, get_current_user
 from database import engine, get_db
 from linebot.v3 import WebhookParser
-from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest
+from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest, AsyncMessagingApiBlob
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
@@ -25,6 +25,7 @@ channel_access_token = os.getenv("LINE_CHANNEL_ACCESS_TOKEN")
 parser = WebhookParser(channel_secret) if channel_secret else None
 
 _line_bot_api = None
+_line_blob_api = None
 
 def get_line_bot_api() -> AsyncMessagingApi:
     global _line_bot_api
@@ -33,6 +34,14 @@ def get_line_bot_api() -> AsyncMessagingApi:
         async_api_client = AsyncApiClient(configuration)
         _line_bot_api = AsyncMessagingApi(async_api_client)
     return _line_bot_api
+
+def get_line_blob_api() -> AsyncMessagingApiBlob:
+    global _line_blob_api
+    if _line_blob_api is None:
+        configuration = Configuration(access_token=channel_access_token)
+        async_api_client = AsyncApiClient(configuration)
+        _line_blob_api = AsyncMessagingApiBlob(async_api_client)
+    return _line_blob_api
 
 
 from fastapi.middleware.cors import CORSMiddleware
@@ -571,6 +580,83 @@ def get_monthly_summary(db: Session = Depends(get_db)):
     result = sorted(monthly_data.values(), key=lambda x: x["month"])
     return result[-6:] if len(result) > 6 else result
 
+@app.get("/transactions/utility-analytics/", response_model=schemas.UtilityAnalyticsResponse)
+def get_utility_margin_analytics(db: Session = Depends(get_db)):
+    # Generate last 6 months list
+    current_date = datetime.now()
+    months_list = []
+    for i in range(5, -1, -1):
+        m = current_date.month - i
+        y = current_date.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        months_list.append(f"{y:04d}-{m:02d}")
+        
+    # Initialize monthly tracking dictionaries
+    water_data = {m: {"month": m, "collected": 0.0, "gov_paid": 0.0, "margin": 0.0, "margin_pct": 0.0} for m in months_list}
+    elec_data = {m: {"month": m, "collected": 0.0, "gov_paid": 0.0, "margin": 0.0, "margin_pct": 0.0} for m in months_list}
+    
+    # 1. Fetch and aggregate paid Dorm Payments
+    dorm_payments = db.query(models.DormPayment).filter(
+        models.DormPayment.payment_status == "paid",
+        models.DormPayment.month.in_(months_list)
+    ).all()
+    for dp in dorm_payments:
+        water_data[dp.month]["collected"] += float(dp.water_cost or 0.0)
+        elec_data[dp.month]["collected"] += float(dp.electric_cost or 0.0)
+        
+    # 2. Fetch and aggregate paid House Payments
+    house_payments = db.query(models.HousePayment).filter(
+        models.HousePayment.payment_status == "paid",
+        models.HousePayment.month.in_(months_list)
+    ).all()
+    for hp in house_payments:
+        water_data[hp.month]["collected"] += float(hp.water_bill or 0.0)
+        elec_data[hp.month]["collected"] += float(hp.electric_bill or 0.0)
+        
+    # 3. Fetch and aggregate Transaction expenses for water and electricity bills
+    # Note: We filter by Transaction created_at dating within the range of months
+    # We pull transactions from the last 200 days to cover our 6 months range
+    six_months_ago = current_date - timedelta(days=200)
+    transactions = db.query(models.Transaction).filter(
+        models.Transaction.type == models.TransactionType.EXPENSE,
+        models.Transaction.expense_category.in_([models.ExpenseCategory.WATER_BILL, models.ExpenseCategory.ELECTRIC_BILL]),
+        models.Transaction.created_at >= six_months_ago
+    ).all()
+    
+    for tx in transactions:
+        if tx.created_at:
+            tx_month = tx.created_at.strftime("%Y-%m")
+            if tx_month in water_data:
+                if tx.expense_category == models.ExpenseCategory.WATER_BILL:
+                    water_data[tx_month]["gov_paid"] += float(tx.amount or 0.0)
+                elif tx.expense_category == models.ExpenseCategory.ELECTRIC_BILL:
+                    elec_data[tx_month]["gov_paid"] += float(tx.amount or 0.0)
+
+    # 4. Calculate Margins and Margin Percentages
+    for m in months_list:
+        # Water Calculations
+        w = water_data[m]
+        w["margin"] = w["collected"] - w["gov_paid"]
+        if w["gov_paid"] > 0:
+            w["margin_pct"] = (w["margin"] / w["gov_paid"]) * 100.0
+        else:
+            w["margin_pct"] = 100.0 if w["collected"] > 0 else 0.0
+            
+        # Electricity Calculations
+        e = elec_data[m]
+        e["margin"] = e["collected"] - e["gov_paid"]
+        if e["gov_paid"] > 0:
+            e["margin_pct"] = (e["margin"] / e["gov_paid"]) * 100.0
+        else:
+            e["margin_pct"] = 100.0 if e["collected"] > 0 else 0.0
+            
+    return {
+        "water": [water_data[m] for m in months_list],
+        "electricity": [elec_data[m] for m in months_list]
+    }
+
 def match_business_unit(description: str, db: Session) -> Optional[models.BusinessUnit]:
     units = db.query(models.BusinessUnit).all()
     if not units:
@@ -636,35 +722,406 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="Invalid signature")
 
     for event in events:
-        if not isinstance(event, MessageEvent) or not isinstance(event.message, TextMessageContent):
+        if not isinstance(event, MessageEvent):
             continue
         
         user_id = event.source.user_id
+
+        # 📸 Handle Image/Slip uploads sent directly to chat
+        if event.message.type == "image":
+            # 1. Try to find the associated room for the user
+            room = find_room_by_line_user_id(user_id, db)
+            
+            if not room:
+                reply_text = (
+                    "❌ ขออภัยค่ะ ระบบยังไม่สามารถตรวจสอบสลิปนี้ให้โดยอัตโนมัติได้ เนื่องจากไลน์นี้ยังไม่ได้ผูกบัญชีห้องพักในระบบค่ะ\n\n"
+                    "กรุณาผูกบัญชีโดยส่งข้อความในรูปแบบนี้ก่อนนะคะ:\n"
+                    "👉 [ชื่อเล่น] หอ [เลขหอ] ห้อง [เลขห้อง]\n"
+                    "ตัวอย่าง: แก้ว หอ 26/20 ห้อง 302\n\n"
+                    "หรือติดต่อเจ้าหน้าที่ผู้ดูแลระบบเพื่อทำการผูกบัญชีให้ได้เลยค่ะ 🙏😊"
+                )
+                await get_line_bot_api().reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=reply_text)]
+                    )
+                )
+                continue
+                
+            # If room is found, check if it's unpaid
+            if room.payment_status == "paid":
+                # Check for other unpaid custom invoices
+                customer = db.query(models.Customer).filter(models.Customer.line_user_id == user_id).first()
+                unpaid_invoice = None
+                if customer:
+                    unpaid_invoice = db.query(models.Invoice).filter(
+                        models.Invoice.customer_id == customer.id,
+                        models.Invoice.status == models.InvoiceStatus.UNPAID
+                    ).first()
+                    
+                if not unpaid_invoice:
+                    reply_text = (
+                        f"💡 ระบบพบว่าห้องพัก หอ {room.dorm_key.replace('_', '/')} ห้อง {room.number} ของคุณ ได้รับการชำระยอดเงินประจำเดือนนี้เรียบร้อยแล้วค่ะ!\n\n"
+                        f"หากภาพนี้เป็นหลักฐานสลิปสำหรับค่าใช้จ่ายอื่นๆ หรือรายการค้างจ่ายเพิ่มเติม เจ้าหน้าที่แอดมินจะรีบตรวจสอบสลิปและบันทึกยอดเข้าระบบบัญชีให้คุณโดยเร็วที่สุดค่ะ ขอบพระคุณค่ะ 🙏😊"
+                    )
+                    await get_line_bot_api().reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=reply_text)]
+                        )
+                    )
+                    continue
+                else:
+                    expected_amount = unpaid_invoice.amount
+                    payment_type = "invoice"
+                    target_obj = unpaid_invoice
+            else:
+                expected_amount = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+                payment_type = "dorm"
+                target_obj = room
+
+            # 2. Proceed with download and SlipOK API validation
+            try:
+                # Retrieve the image binary content from LINE
+                blob_api = get_line_blob_api()
+                message_content = await blob_api.get_message_content(message_id=event.message.id)
+                img_bytes = bytes(message_content)
+                
+                slipok_api_key = os.getenv("SLIPOK_API_KEY")
+                slipok_branch_id = os.getenv("SLIPOK_BRANCH_ID", "0")
+                
+                import httpx
+                import random
+                
+                if slipok_api_key and slipok_api_key != "your_slipok_api_key_here":
+                    # Production Mode: call SlipOK API using files upload
+                    url = f"https://api.slipok.com/api/line/apikey/{slipok_branch_id}"
+                    headers = {
+                        "x-authorization": slipok_api_key
+                    }
+                    files = {
+                        "files": ("slip.jpg", img_bytes, "image/jpeg")
+                    }
+                    payload = {
+                        "log": "true",
+                        "amount": float(expected_amount)
+                    }
+                    
+                    async with httpx.AsyncClient() as client:
+                        response = await client.post(url, headers=headers, files=files, data=payload, timeout=20.0)
+                        
+                    if response.status_code != 200:
+                        raise Exception(f"SlipOK API Error (HTTP {response.status_code}): {response.text}")
+                        
+                    res_json = response.json()
+                    success = res_json.get("success", False)
+                    data = res_json.get("data", {})
+                    is_valid = success and (data.get("success", True) if isinstance(data, dict) else True)
+                    
+                    if not is_valid:
+                        error_msg = res_json.get("message") or (data.get("message") if isinstance(data, dict) else None) or "สลิปไม่ผ่านการตรวจสอบ"
+                        raise Exception(error_msg)
+                        
+                    ref_no = data.get("transRef")
+                    if not ref_no:
+                        raise Exception("ไม่พบรหัสอ้างอิงธุรกรรม (Transaction Reference) ในสลิป")
+                        
+                    # Check for duplicates
+                    existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_no).first()
+                    if existing_tx:
+                        reply_text = (
+                            "❌ ระบบไม่สามารถยืนยันสลิปนี้ได้ เนื่องจากสลิปนี้เคยถูกส่งเพื่อยืนยันยอดเงินไปแล้ว หรือข้อมูลไม่สอดคล้องกับระบบของหอพัก กรุณาตรวจสอบความถูกต้องหรือส่งข้อความคุยกับแอดมินโดยตรงค่ะ"
+                        )
+                        await get_line_bot_api().reply_message(
+                            ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
+                        )
+                        continue
+                        
+                    sender_name = data.get("sender", {}).get("displayName") or data.get("sender", {}).get("name") or "ผู้เช่าในระบบ"
+                    receiver_name = data.get("receiver", {}).get("displayName") or data.get("receiver", {}).get("name") or "หอพัก/บริษัท"
+                    amount_paid = data.get("amount", 0.0)
+                    trans_date_str = data.get("transDate") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    # Verify Amount
+                    if abs(float(amount_paid) - float(expected_amount)) > 0.01:
+                        # Incorrect amount
+                        reply_text = (
+                            f"❌ ยอดเงินในสลิปจริง ({amount_paid:,.2f} บาท) ไม่สอดคล้องกับยอดเงินที่ต้องชำระในระบบ ({expected_amount:,.2f} บาท)\n"
+                            "กรุณาตรวจสอบยอดชำระหรือติดต่อแอดมินโดยตรงค่ะ"
+                        )
+                        await get_line_bot_api().reply_message(
+                            ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
+                        )
+                        continue
+                else:
+                    # Sandbox Fallback mode (simulated success)
+                    ref_no = f"SIM-SLIP-{datetime.now().strftime('%Y%m%d')}-" + "".join([str(random.randint(0, 9)) for _ in range(6)])
+                    sender_name = room.tenant or "ผู้เช่าจำลอง (โหมดทดสอบ)"
+                    receiver_name = "บริษัท หอพักเครือ Sovereign จำกัด"
+                    amount_paid = expected_amount
+                    trans_date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
+                    
+                # Bookkeeping & Saving payment status
+                current_month_key = datetime.now().strftime("%Y-%m")
+                if payment_type == "dorm":
+                    room.payment_status = "paid"
+                    room.payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    
+                    db.add(models.Transaction(
+                        type=models.TransactionType.INCOME,
+                        amount=expected_amount,
+                        description=f"ค่าเช่าห้อง {room.number} รอบ {current_month_key} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})",
+                        reference_id=ref_no,
+                        unit_id=(lambda u: u.id if u else None)(db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first())
+                    ))
+                    
+                    db.add(models.DormPayment(
+                        room_id=room.id,
+                        month=current_month_key,
+                        amount=room.rate,
+                        water_cost=room.water_cost,
+                        electric_cost=room.electric_cost,
+                        cleaning_fee=room.cleaning_fee,
+                        other_fee=room.other_fee,
+                        fine_cost=room.fine_cost,
+                        payment_status="paid",
+                        paid_at=datetime.utcnow()
+                    ))
+                    
+                else:
+                    # Invoice type
+                    unpaid_invoice.status = models.InvoiceStatus.PAID
+                    db.add(models.Transaction(
+                        type=models.TransactionType.INCOME,
+                        amount=expected_amount,
+                        description=f"ชำระบิลเรียกเก็บเงิน: {unpaid_invoice.title} #{unpaid_invoice.id} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})",
+                        reference_id=ref_no,
+                        unit_id=unpaid_invoice.unit_id
+                    ))
+                    
+                db.commit()
+                
+                # Notify Owner about the successful payment
+                notify_msg = (
+                    f"🔔 ยืนยันยอดชำระเงินอัตโนมัติ! 🔔\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🏢 หอพัก/ห้อง: ห้อง {room.number}\n"
+                    f"👤 ผู้เช่า: {room.tenant}\n"
+                    f"💰 ยอดเงิน: {expected_amount:,.2f} บาท\n"
+                    f"👤 ผู้โอน: {sender_name}\n"
+                    f"🔢 รหัสอ้างอิง: {ref_no}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"ระบบได้บันทึกยอดและออกใบรับชำระเงินเรียบร้อยแล้วค่ะ ✨"
+                )
+                await send_financial_alert_to_owner(notify_msg)
+                
+                # Reply to Tenant with Template C Successful reply
+                reply_text = (
+                    f"🎉 ระบบตรวจสอบสลิปสำเร็จ! ยอดโอน {amount_paid:,.2f} บาท "
+                    f"โอนเมื่อ {trans_date_str} ได้รับการบันทึกในบัญชีเรียบร้อยแล้วค่ะ "
+                    f"ขอบพระคุณที่ชำระค่าเช่าตามเวลานะคะ 🙏😊"
+                )
+                await get_line_bot_api().reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=reply_text)]
+                    )
+                )
+                
+            except Exception as e:
+                db.rollback()
+                # If SlipOK fails or throws error, reply with Template C Failed reply
+                reply_text = (
+                    "❌ ระบบไม่สามารถยืนยันสลิปนี้ได้ เนื่องจากสลิปนี้เคยถูกส่งเพื่อยืนยันยอดเงินไปแล้ว หรือข้อมูลไม่สอดคล้องกับระบบของหอพัก กรุณาตรวจสอบความถูกต้องหรือส่งข้อความคุยกับแอดมินโดยตรงค่ะ"
+                )
+                await get_line_bot_api().reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=reply_text)]
+                    )
+                )
+            
+            continue
+
+        if not isinstance(event.message, TextMessageContent):
+            continue
+        
         text = event.message.text.strip()
+
+        if text == "แจ้งซ่อม":
+            reply_text = (
+                "🔧 ระบบรับแจ้งเตือนปัญหาซ่อมแซมห้องพักอัตโนมัติ:\n\n"
+                "กรุณาพิมพ์รายละเอียดปัญหาโดยระบุเลขห้องของท่านตามฟอร์แมตด้านล่างนี้ได้เลยค่ะ:\n"
+                "👉 \"แจ้งซ่อม หอ[เลขหอ] ห้อง [เลขห้อง] [ระบุรายละเอียดของปัญหาชำรุด]\"\n"
+                "👉ขอความร่วมมือส่งรูป เเละวิดีโอมาด้วยค่ะ\n\n"
+                "ตัวอย่างเช่น:\n"
+                "💬 แจ้งซ่อม หอ 26/577 ห้อง 302 ลูกบิดประตูด้านในฝืดและปลดล็อกไม่ได้\n"
+                "💬 แจ้งซ่อม หอ 26/20 ห้อง B5 หลอดไฟในห้องน้ำดับและต้องการให้เปลี่ยนหลอดไฟใหม่\n\n"
+                "เมื่อส่งข้อมูลแล้ว ระบบจะยิงแจ้งเตือนหาเจ้าของหอพักทันที ✨\n\n"
+                "!!!หากมีเหตุเร่งด่วน!!!\n"
+                "โทร: 081-933-0490"
+            )
+            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            continue
+
+        if text == "แจ้งโอนเงิน":
+            reply_text = (
+                "💵 ช่องทางการชำระเงินของหอพัก:\n"
+                "ท่านสามารถชำระเงินผ่านบัญชี PromptPay หรือโอนเข้าบัญชีธนาคารของหอพัก (ข้อมูลแสดงอยู่ในใบแจ้งหนี้)\n\n"
+                "เมื่อโอนเงินเสร็จเรียบร้อยแล้ว:\n"
+                "👉 กรุณาส่งภาพสลิปโอนเงินเข้ามาในห้องแชทนี้ได้ทันทีค่ะ/ครับ\n\n"
+                "⚠️ ข้อแนะนำ: ระบบหลังบ้านของเราติดตั้งระบบ SlipOK AI ในการตรวจสลิปปลอมและตรวจหาการเคลมยอดเงินซ้ำ หากส่งสลิปแล้วกรุณารอระบบประมวลผลสักครู่ค่ะ\n\n"
+                "ได้รับข้อความเเล้ว(LINE messenger) รอสักครู่น้าา(shiny)\n\n"
+                "(warning)หากอุปกรณ์ภายในห้องชำรุด(warning)\n"
+                "ขอความร่วมมือส่งรูป เเละวิดีโอมาด้วยค่ะ(incoming call)\n\n"
+                "หากมีเหตุเร่งด่วน(oh no!)(!)\n"
+                "โทร: 081-933-0490 หรือ 093-130-5336"
+            )
+            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            continue
+
+        # 👤 Auto-binding pattern: [Nickname] หอ [DormKey] ห้อง [RoomNumber]
+        # e.g., "แก้ว หอ 26/20 ห้อง 302"
+        binding_match = re.search(
+            r'^([^\n]+?)\s*หอ\s*(26/20|26/577|73/17|26_20|26_577|73_17|26-20|26-577|73-17)\s*ห้อง\s*([a-zA-Z0-9_\-/]+)',
+            text,
+            re.IGNORECASE
+        )
+        if binding_match:
+            nickname = binding_match.group(1).strip()
+            dorm_input = binding_match.group(2).strip()
+            room_number = binding_match.group(3).strip()
+
+            # Normalize dorm_input (e.g. 26/20 -> 26_20)
+            dorm_key = dorm_input.replace("/", "_").replace("-", "_")
+
+            # Find the Room
+            room = db.query(models.DormRoom).filter(
+                models.DormRoom.dorm_key == dorm_key,
+                models.DormRoom.number == room_number
+            ).first()
+
+            if not room:
+                reply_text = (
+                    f"❌ ขออภัยค่ะ ไม่พบข้อมูลห้องพักหมายเลข {room_number} ในหอพัก {dorm_input} ในระบบค่ะ\n\n"
+                    f"กรุณาตรวจสอบเลขห้องและชื่อหอพักอีกครั้ง หรือพิมพ์แจ้งผู้ดูแลระบบเพื่อทำการแก้ไขข้อมูลนะคะ 🙏"
+                )
+            else:
+                # 1. Clear this line_user_id from other rooms (avoid duplicates/stale links)
+                db.query(models.DormRoom).filter(
+                    models.DormRoom.remark == user_id,
+                    models.DormRoom.id != room.id
+                ).update({models.DormRoom.remark: None}, synchronize_session=False)
+
+                # 2. Clear this line_user_id from other customers to maintain unique constraint
+                db.query(models.Customer).filter(
+                    models.Customer.line_user_id == user_id
+                ).update({models.Customer.line_user_id: None}, synchronize_session=False)
+
+                # 3. Bind the Line User ID to the Room
+                room.remark = user_id
+
+                # 4. Bind or Create Customer under Dormitory unit
+                dorm_unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first()
+                
+                # If room tenant is empty, populate it with the nickname
+                tenant_name = room.tenant or nickname
+                if not room.tenant:
+                    room.tenant = tenant_name
+
+                # Look up customer
+                customer = None
+                if dorm_unit:
+                    customer = db.query(models.Customer).filter(
+                        models.Customer.name == tenant_name,
+                        models.Customer.unit_id == dorm_unit.id
+                    ).first()
+
+                if customer:
+                    customer.line_user_id = user_id
+                else:
+                    customer = models.Customer(
+                        name=tenant_name,
+                        line_user_id=user_id,
+                        unit_id=dorm_unit.id if dorm_unit else None
+                    )
+                    db.add(customer)
+
+                db.commit()
+
+                reply_text = (
+                    f"🏠✨ ผูกบัญชีห้องพักสำเร็จเรียบร้อยแล้วค่ะ!\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"👤 ผู้เช่า: คุณ {tenant_name}\n"
+                    f"🏢 หอพัก: หอ {dorm_input}\n"
+                    f"🚪 ห้องพัก: ห้อง {room_number}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"ยินดีต้อนรับเข้าสู่ระบบ LINE OA สำหรับลูกหอพักค่ะ 🏠✨\n\n"
+                    f"ท่านสามารถใช้แผง Rich Menu ด้านล่าง เพื่อความสะดวกในการใช้งานดังนี้:\n"
+                    f"1. 🧾 [เช็คยอด] เพื่อตรวจสอบบิลค่าเช่า/ค่าน้ำ/ค่าไฟ รายเดือน\n"
+                    f"2. 💵 [แจ้งโอนเงิน] ส่งภาพสลิปโอนเงิน PromptPay เพื่อให้ระบบ AI ตรวจสอบยอดอัตโนมัติ\n"
+                    f"3. 🔧 [แจ้งซ่อม] พิมพ์แจ้งปัญหาความชำรุดในห้องพักเพื่อให้ช่างเข้าไปดำเนินการแก้ไข\n\n"
+                    f"ขอบคุณที่ใช้บริการค่ะ 🙏😊"
+                )
+
+            await get_line_bot_api().reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=reply_text)]
+                )
+            )
+            continue
 
         if text.startswith("แจ้งซ่อม"):
             content = text[len("แจ้งซ่อม"):].strip()
-            room_match = re.search(r'(?:ห้อง\s*|room\s*)?([a-zA-Z0-9_\-]+)', content, re.IGNORECASE)
+            
+            # Smart Regex: extract optional dorm and room number
+            dorm_match = re.search(r'หอ\s*(26/20|26/577|73/17|26_20|26_577|73_17|26-20|26-577|73-17)', content, re.IGNORECASE)
+            room_match = re.search(r'ห้อง\s*([a-zA-Z0-9_\-/]+)', content, re.IGNORECASE)
+            
             room = None
             description = content
             
             if room_match:
                 room_candidate = room_match.group(1).strip()
-                room = db.query(models.DormRoom).filter(models.DormRoom.number == room_candidate).first()
-                if room:
-                    description = content.replace(room_match.group(0), "", 1).strip()
-                    description = re.sub(r'^[\s\-:]+', '', description).strip()
+                dorm_candidate = None
+                if dorm_match:
+                    dorm_input = dorm_match.group(1).strip()
+                    dorm_candidate = dorm_input.replace("/", "_").replace("-", "_")
+                
+                if dorm_candidate:
+                    # Query matching BOTH dorm key and room number
+                    room = db.query(models.DormRoom).filter(
+                        models.DormRoom.dorm_key == dorm_candidate,
+                        models.DormRoom.number == room_candidate
+                    ).first()
+                else:
+                    # Query matching room number only
+                    room = db.query(models.DormRoom).filter(models.DormRoom.number == room_candidate).first()
+                
+                # Clean up description text (strip out matched หอ and ห้อง patterns)
+                desc_clean = content
+                if dorm_match:
+                    desc_clean = desc_clean.replace(dorm_match.group(0), "", 1)
+                if room_match:
+                    desc_clean = desc_clean.replace(room_match.group(0), "", 1)
+                
+                # Strip out residual "หอ" or "ห้อง" text if any
+                desc_clean = re.sub(r'^\s*หอ\s*ห้อง\s*', '', desc_clean)
+                desc_clean = re.sub(r'^[\s\-:]+', '', desc_clean).strip()
+                description = desc_clean
             
+            # If no room matched from text, try auto-bound fallback using LINE User ID
             if not room:
                 room = find_room_by_line_user_id(user_id, db)
-            
+                
             if not room:
                 reply_text = (
-                    "❌ ไม่พบข้อมูลเลขห้องของท่านในระบบครับ\n\n"
-                    "กรุณาแจ้งซ่อมตามรูปแบบนี้:\n"
-                    "👉 แจ้งซ่อม [เลขห้อง] [ปัญหาที่พบ]\n"
-                    "ตัวอย่าง: แจ้งซ่อม 201 ท่อน้ำทิ้งอุดตัน\n\n"
-                    "หรือติดต่อเจ้าหน้าที่เพื่อผูกไอดี LINE กับห้องพักของท่านครับ"
+                    "❌ ขออภัยค่ะ ระบบไม่พบข้อมูลเลขห้องของท่าน\n\n"
+                    "กรุณาแจ้งซ่อมตามรูปแบบนี้นะคะ:\n"
+                    "👉 แจ้งซ่อม หอ [เลขหอ] ห้อง [เลขห้อง] [ปัญหาที่พบ]\n"
+                    "ตัวอย่าง: แจ้งซ่อม หอ 26/20 ห้อง 302 ท่อน้ำทิ้งอุดตัน\n\n"
+                    "หรือติดต่อเจ้าหน้าที่เพื่อผูกไอดี LINE กับห้องพักของท่านค่ะ"
                 )
             else:
                 ticket_desc = description or "ไม่ระบุรายละเอียดปัญหา"
@@ -719,6 +1176,16 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                     reply_text = f"สวัสดีครับคุณ {customer.name}\nยอดค้างชำระทั้งหมด: {total:,.2f} บาท\n\nรายละเอียด:\n{details}"
             await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
+
+        # 🛡️ Admin Security Check
+        admin_commands = ["สรุปวันนี้", "ยอดเงิน", "ทวงบิล"]
+        is_admin_cmd = text in admin_commands or bool(re.match(r'^(รับ|จ่าย)\s+(\d+(?:\.\d+)?)\s+(.*)$', text, re.IGNORECASE))
+        
+        if is_admin_cmd:
+            owner_line_id = os.getenv("OWNER_LINE_USER_ID")
+            if not owner_line_id or user_id != owner_line_id:
+                # Silently ignore to prevent normal tenants from discovering admin commands
+                continue
 
         if text == "สรุปวันนี้":
             today_start = datetime.combine(date.today(), time.min)
