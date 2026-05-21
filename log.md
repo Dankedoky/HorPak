@@ -1,0 +1,148 @@
+# Activity Log
+
+## [2026-05-20] Uvicorn Daemon Resuscitation & Reset Synchronization Verification
+- **Uvicorn Daemon Boot:** Started the Uvicorn backend server on port 8000 (`http://127.0.0.1:8000`) and successfully verified the connection to the primary Supabase PostgreSQL database. This resolves the `Failed to fetch` error encountered by the frontend when attempting to communicate with the REST API.
+- **Database Reset & Re-seeding Verification:** Tested the POST `/rooms/reset/` API endpoint. Verified that dropping and recreating tables works flawlessly on Supabase, and successfully seeds all 71 rooms and 3 houses as clean vacant spaces with `tenant=""` as expected.
+
+## [2026-05-20] Premium UI & Business Unit Administration Polish
+- **Reports Exception Fixed:** Declared the missing `monthlyData` state and developed a reactive `useEffect` data-hook in `src/app/reports/page.tsx` to automatically pull dynamic 6-month historical data from the `/transactions/monthly-summary` backend API. The uncaught reference exception is resolved.
+- **Business Unit Settings CRUD:** Fully implemented the administration panel in `src/app/settings/page.tsx` enabling full stateful CRUD controls (Create, Read, Update, Delete) of network Business Units directly from the UI, persisting live updates instantly inside SQLite/PostgreSQL databases.
+- **Production-Ready Verification:** Successfully executed a full production compilation via `npm run build` using Next.js 16 and Turbopack, verifying a 100% build success with zero TypeScript errors or linter warnings.
+
+## [2026-05-20] Full Backend Database Synchronization & Production Verification
+- **API Integration Completion:** Refactored React Hooks (`useDormitoryData`, `useGarageData`, `useHouseData`, and `useTransactionData`) to load, cache, and statefully sync UI interactions directly to the SQLite database via backend REST endpoints.
+- **SQL Seeding Execution:** Successfully initialized SQLite database (`backend/dormitory.db`) with complete target configurations:
+  - 71 Dorm Rooms seeded (Floor wings, Duplicate room resolution applied)
+  - 3 Rental Houses seeded (h1, h2, h3)
+  - 5 Business Units mapped for consolidated accounting ledgering
+- **Production Build:** Ran `npm run build` inside `frontend/` directory with 100% successful compile rate and zero TypeScript / linter errors.
+- **Uvicorn Daemon:** Booted FastAPI backend under port 8000 using asynchronous task execution to maintain hot-reloaded dev state.
+
+## [2026-05-19] System Check & Initialization
+- **System Check:** Analyzed project structure, imports in `main.py`, and package installation status.
+- **Dependency Status:** Verified `line-bot-sdk-3.23.0` was successfully installed by the user's `pip install -r requirements.txt` command.
+- **Issue Resolved (Null Bytes in __init__.py):**
+  - Identified that `backend/__init__.py` was encoded in `UTF-16LE`, which contains null bytes in ASCII representation.
+  - This caused Python to raise a `SyntaxError: source code string cannot contain null bytes` on module import.
+  - Rewrote `backend/__init__.py` to a standard UTF-8 file, resolving the tokenizer/syntax error.
+- **Issue Identified (Database Connection):**
+  - Running `python -m backend.main` revealed that `models.Base.metadata.create_all(bind=engine)` runs at startup.
+  - It failed to connect to PostgreSQL at `localhost:5432` with a `psycopg2.OperationalError: Connection refused` because the Docker daemon/PostgreSQL service is not running.
+- **Standards Applied:** Created Obsidian Vault metadata files `MEMORY.md` and `log.md` to ensure project statefulness and strict tracking.
+
+## [2026-05-19] Relative Imports Refactoring & Successful Uvicorn Boot
+- **Absolute Imports Migration:**
+  - Encountered `ModuleNotFoundError: No module named 'backend'` when the user executed `uvicorn backend.main:app --reload` from inside the `backend` folder.
+  - Determined that relative imports (`from . import`) inside `main.py`, `models.py`, and `schemas.py` required Python to run as a package, causing crashes when executing directly from the `backend/` directory.
+  - Refactored all relative imports to absolute imports (`import models`, `from database import Base`, etc.).
+- **Uvicorn Verification:**
+  - Tested running `uvicorn main:app --reload` inside the `backend/` folder.
+  - Confirmed the server boots up 100% successfully.
+  - Verified it logs the PostgreSQL connection warning and seamlessly initializes the SQLite database (`dormitory.db`), creating all required tables and relationships.
+
+## [2026-05-19] Phase 1 Accounting MVP Implementation
+- **Seeding Logic:** Added `@app.on_event("startup")` in `main.py` to check the database count for `BusinessUnit`. If empty, it automatically seeds 5 standard units: `หอพัก` (Dormitory), `อู่ซ่อมรถ` (Garage), `บ้านเช่า หลังที่ 1`, `บ้านเช่า หลังที่ 2`, and `บ้านเช่า หลังที่ 3` (Houses). Verified successfully inside `dormitory.db`.
+- **Transaction Models & Schemas:** Added `TransactionType` enum, `Transaction` table in `models.py` and connected relations to `BusinessUnit`. Added `TransactionCreate`, `Transaction`, and dashboard aggregation response schemas in `schemas.py`.
+- **API Endpoints:** Implemented `/transactions/` for logging transactions manually and `/transactions/summary` to retrieve consolidated income, expense, and net balance globally and broken down by individual business unit.
+- **LINE Webhook Commands:**
+  - Integrated `re` and `datetime` to parse owner logging texts (`รับ [amount] [description]` & `จ่าย [amount] [description]`).
+  - Added smart heuristics to link transactions automatically to seeded business units (e.g. `อู่` -> Garage, `บ้าน 1` -> House 1, `B20`/`หอ` -> Dormitory).
+  - Added fast accounting commands `สรุปวันนี้` and `ยอดเงิน` that output custom formatted Thai text summaries.
+
+## [2026-05-19] Premium Light-Theme Enterprise SaaS Frontend Implementation
+- **Layout & CSS Redesign:** Redesigned `layout.tsx` to a pristine light-theme enterprise layout with a professional side navigation bar (Sidebar) matching the exact modules from the roadmap (Dormitory, Garage, Rental House, Accounting, Reports, Settings).
+- **Dashboard Synchronization:** Rebuilt `page.tsx` to strictly mirror the visual design of the provided "ROAD MAP" diagram:
+  - Added 4 top KPI cards: "รายรับวันนี้", "รายจ่ายวันนี้", "กำไรสุทธิวันนี้", "เงินสดคงเหลือ".
+  - Implemented a custom pure SVG/React Donut Chart for Revenue Proportions by Business Unit.
+  - Implemented a custom Bar Chart visualizing Income vs. Expense metrics.
+  - Added expense breakdown lists and categorized revenue sources with aesthetic custom SVG icons.
+- **API CORS Resolution:** Added `CORSMiddleware` to `backend/main.py` allowing the Next.js frontend running on port 3000 to securely fetch data from the FastAPI backend on port 8000 without cross-origin blocking.
+
+## [2026-05-19] Dormitory Room Grid Module Implementation (หอพัก A20)
+- **New Page Creation:** Created `src/app/dormitory/page.tsx` representing the interactive room grid for "หอพัก A20" featuring 27 rooms distributed over 5 floors.
+- **Data Fidelity:** Populated rooms, numbers, and monthly rental rates (ค่าห้อง) exactly matching the user's provided list image (e.g. Floor 1 vacant rooms 101-103 at 0 rate, Floor 3 duplicate entry handled elegantly as rooms 302-1 and 302-2, Floor 5 room 501 at 2300 rate).
+- **Interactive UI Elements:** 
+  - Added stats cards tracking occupied/vacant room ratios and total monthly revenue estimator.
+  - Vacant rooms styled with slate dashed borders; occupied rooms display rates and have active action items.
+  - Implemented interactive Search and Floor/Occupancy filter controls.
+- **Dynamic Utility & Invoice Generation:** 
+  - Clicking any occupied room card opens a gorgeous popup form to input Water meter (ค่าน้ำ @ 18 ฿/unit) and Electricity meter (ค่าไฟ @ 8 ฿/unit).
+  - Simulates instant rent, water, and electric invoice generation and sends toast-notification to the tenant.
+- **Sidebar Integration:** Updated the main sidebar link to `/dormitory` allowing seamless navigation between the main financial dashboard and the dormitory manager page.
+
+## [2026-05-19] Multi-Dormitory Support & Premium Aesthetics Update
+- **Multi-Dormitory Selector:** Added dynamic tab selector allowing the user to switch seamlessly between three different dormitory assets:
+  - **หอ 26/20:** Corrected room list to exactly 26 rooms, fixed duplicate room 302 and adjusted room 303 rate to 2,500 THB to precisely match the latest user image.
+  - **หอ 26/577:** Populated 31 rooms (Floor 1-3) with flat 2,500 THB rate (including duplicate rooms 302-1 and 302-2) and corrected room 104's rate to 2,000 THB exactly matching the uploaded list.
+  - **หอ 73/17:** Populated 14 rooms (A1-A7, B1-B7) with 3,500 THB rate and dynamically grouped them by **ตึก A (Building A)** and **ตึก B (Building B)** instead of floors.
+- **Visual Validation:** Executed verification steps using a headless browser (Playwright) to capture pristine screenshots validating invoice generation, stats updates, and dormitory layout styling.
+
+## [2026-05-19] Duplicate Room 302 Resolution (หอ 26/577)
+- **Fidelity Update:** Refactored Floor 3 room list for **หอ 26/577** to display both duplicate rooms exactly as `ห้อง 302` in the UI (replacing the temporary `302 (1)` and `302 (2)` names) to match the owner's exact physical records.
+- **Robust Keying:** Assigned unique `id` trackers (`26_577_302_1` and `26_577_302_2`) and updated the invoice state management matching logic to uniquely select, update, and emit water/electric bills for both rooms independently.
+- **Tenant Visibility:** Upgraded the room grid buttons to display the tenant's name under the rate (`👤 สมเกียรติ ยิ่งดี` and `👤 วิไล พรอนันต์`) to let the owner instantly differentiate the duplicate rooms from the main view.
+- **Verification:** Successfully executed automated browser tests validating tab switching, room rendering, separate modal loading, and flawless closing transitions. Billed and closed seamlessly.
+
+## [2026-05-19] Duplicate Room 302 Removal (หอ 26/577)
+- **Room List Cleanup:** Removed the duplicate Room 302 entry from the **หอ 26/577** configuration in `frontend/src/app/dormitory/page.tsx`, retaining exactly one unique Room 302 with tenant `"สมเกียรติ ยิ่งดี"` as requested.
+- **Tab Label & Stats Sync:** Updated the tab selector header to `"หอ 26/577 (30 ห้อง)"` and confirmed that the stats aggregation KPI cards automatically recalculate to represent exactly 30 total rooms.
+
+## [2026-05-19] Robust Excel-Like Calculation (Live UI Update)
+- **Math Safety:** Updated utility calculation logic (`wCurr - wPrev`) to strictly use `parseFloat(val) || 0` combined with `Math.max(val, 0)`. This handles empty fields equivalent to Excel treating blank cells as `0` and prevents negative unit subtraction.
+- **Live Preview Dashboard:** Implemented an IIFE inside the JSX modal to calculate live values. Inserted a new real-time preview board right below the inputs showing exact unit differences (`Units × Rate = Cost`) and the net total formatting tightly to 2 decimal places (`.toLocaleString`). This provides identical confidence and instant recalculation as standard spreadsheet formulas.
+
+## [2026-05-19] Responsive Grid & Layout Enhancement
+- **Spacious Room Cards:** Addressed the issue of cramped cards (especially for 10-room floors in หอ 26/577 and 7-room wings in 73/17) by completely removing the forced 10-column and 7-column layout constraints.
+- **Premium Breathing Room:** Implemented a standardized, highly-responsive Tailwind grid (`grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5`) with dynamic gap scaling (`lg:gap-5`). This ensures that room cards maintain a comfortable minimum width, preventing text truncation and providing a beautiful, premium visual experience regardless of how many rooms are on the floor.
+
+## [2026-05-19] Invoice Customization & Global Analytics
+- **Standardized Utility Rates:** Updated baseline calculations to accurately reflect the newest unified rates for all three dormitories: **Electricity @ 7 THB/Unit** and **Water @ 17 THB/Unit**.
+- **Extended Billing Inputs:** Substantially expanded the invoice modal to include inputs for `ค่าทำความสะอาด` (Cleaning Fee), `ค่าอื่นๆ` (Other Fees), `หมายเหตุ` (Remarks), `ย้าย` (Move-out status/info), and `ว่าง` (Vacancy notes). All financial fields dynamically inject into the live Excel-like preview and update the global totals immediately upon submission.
+- **Vector PDF Print Engine:** Developed a high-fidelity, typography-tailored invoice & receipt printing system. Users can print standard paper formats or save crisp vector PDFs in a single click using a dedicated **`🖨️ พิมพ์ / PDF`** button. Features custom CSS optimized for print layouts (hides browser chrome, enforces clean color palettes, sets elegant column alignment, and embeds 'Prompt' and 'Inter' Google Fonts).
+- **Custom Glassmorphic Confirmation Modals:** Replaced the ugly default browser `window.confirm()` popups for BOTH the Reset All and New Month Rollover actions with stunning, premium custom modal dialogs. Features a frosted backdrop, elegant warning/cycle icons, and animated scale-up transitions.
+- **Floating Premium Toast System:** Created an elegant, floating notification toast (`showToast`) at the top center of the viewport that renders dynamic successes (e.g. 🧹 for reset, 🎉 for rollover, 💾 for backup, 📥 for restore, 🖨️ for print) and automatically fades out after 4 seconds, entirely replacing browser alerts.
+- **Dormitory Data Backup & Restore:** Implemented highly robust JSON-based data serialization. Users can now download a `.json` backup of all three dormitories' states via a **`💾 สำรองข้อมูล`** button, and upload it back to sync state via **`📥 นำเข้าข้อมูล`**.
+- **Interactive Payment Status & Global Earnings:** Introduced a dual `paymentStatus` state ("paid" / "pending") on each room card. Included interactive dot badges directly on the card so operators can toggle payments in a single click without opening any popups. Expanded the global stats dashboard into 6 columns to include real-time summaries of expected revenue vs collected vs pending dues.
+- **Automated Calendar Fine System:** Integrated a Date Picker for payment entries. When an operator selects a payment date, the system automatically checks if it falls after the 5th of the month, calculates late days, and feeds the fine sum into the invoice dynamically.
+- **Mock Data Elimination:** Completely wiped out initial mock values for water/electricity meters and all mock tenant names from the frontend state arrays, starting the entire system as beautifully vacant and clean.
+- **Tenant & Rent Editor:** Added interactive input fields in the modal to edit `ชื่อผู้พักอาศัย` (Tenant Name) and `ค่าเช่าห้อง` (Monthly Rent) on the fly. Users can now check new tenants in or out (by clearing the name) directly.
+- **Accessible Vacant Rooms:** Wiped out `disabled={!isOccupied}` from room grid buttons. Vacant rooms are now beautifully highlighted with dashed borders, hover animations, and are fully clickable so that the user can register new tenants and assign base rates easily.
+- **Occupancy-Based Analytics:** Upgraded calculations for occupied count and monthly expected rent revenue to dynamically compute values based on real tenant names rather than arbitrary non-zero rates. Vacant rooms now accurately list their base standard rates on the cards.
+- **Dorm-Level Financial Dashboards:** Overhauled the KPI dashboard to feature a 5-column layout displaying real-time aggregates. Users can now instantly see `รวมค่าเช่า` (Total Rent Revenue), `รวมค่าน้ำ` (Total Water Revenue), `รวมค่าไฟ` (Total Electricity Revenue), and `ยอดรวมสุทธิ` (Net Total Revenue) dynamically recalculated for the currently selected dormitory.
+
+
+
+
+
+
+ # #   [ 2 0 2 6 - 0 5 - 1 9 ]   G a r a g e   a n d   R e n t a l   H o u s e   M o d u l e s   I m p l e m e n t a t i o n 
+ -   * * G a r a g e   M o d u l e : * *   C r e a t e d   ' s r c / a p p / g a r a g e / p a g e . t s x '   f e a t u r i n g : 
+     -   K P I   c a r d s   f o r   a c t i v e   j o b s ,   f i n i s h e d   j o b s ,   t o t a l   r e v e n u e ,   a n d   p e n d i n g   p a y m e n t s . 
+     -   I n t e r a c t i v e   t a b l e   f o r   m a n a g i n g   r e p a i r   j o b s   ( l i c e n s e   p l a t e ,   c a r   m o d e l ,   s t a t u s ,   c o s t ) . 
+     -   M o d a l   f o r   a d d i n g   a n d   e d i t i n g   r e p a i r   j o b s . 
+     -   S t a t e   p e r s i s t e n c e   v i a   ' l o c a l S t o r a g e ' . 
+ -   * * R e n t a l   H o u s e   M o d u l e : * *   C r e a t e d   ' s r c / a p p / h o u s e / p a g e . t s x '   f e a t u r i n g : 
+     -   K P I   c a r d s   f o r   o c c u p a n c y ,   e x p e c t e d   r e v e n u e ,   a n d   c o l l e c t i o n   s t a t u s . 
+     -   V i s u a l   c a r d - b a s e d   g r i d   f o r   t h e   3   r e n t a l   h o u s e s . 
+     -   Q u i c k - t o g g l e   f o r   p a y m e n t   s t a t u s   a n d   e d i t i n g   m o d a l   f o r   t e n a n t / r e n t   d e t a i l s . 
+     -   S t a t e   p e r s i s t e n c e   v i a   ' l o c a l S t o r a g e ' . 
+ -   * * N a v i g a t i o n   U p d a t e : * *   U p d a t e d   ' l a y o u t . t s x '   t o   l i n k   t h e   s i d e b a r   i c o n s   t o   ' / g a r a g e '   a n d   ' / h o u s e ' . 
+ -   * * V e r i f i c a t i o n : * *   S u c c e s s f u l l y   r a n   ' n p m   r u n   b u i l d '   i n   t h e   f r o n t e n d   t o   e n s u r e   z e r o   T y p e S c r i p t   e r r o r s   o r   b r o k e n   r o u t e s .  
+ 
+ # #   [ 2 0 2 6 - 0 5 - 1 9 ]   S y s t e m   O p t i m i z a t i o n   &   S t a b i l i t y   F i x e s 
+ -   * * B a c k e n d   O p t i m i z a t i o n : * *   R e p l a c e d   P y t h o n - l e v e l   l o o p s   w i t h   S Q L   a g g r e g a t i o n   f o r   d a s h b o a r d   s u m m a r i e s ,   s i g n i f i c a n t l y   i m p r o v i n g   p e r f o r m a n c e . 
+ -   * * R o b u s t   D a t a b a s e   F a l l b a c k : * *   R e f i n e d   ' d a t a b a s e . p y '   t o   h a n d l e   P o s t g r e S Q L   c o n n e c t i o n   t i m e o u t s   g r a c e f u l l y   a n d   f a l l b a c k   t o   a   g u a r a n t e e d   l o c a l   S Q L i t e   p a t h . 
+ -   * * F r o n t e n d   H y d r a t i o n   F i x : * *   R e s o l v e d   t h e   f l i c k e r i n g   i s s u e   i n   t h e   D o r m i t o r y   m o d u l e   b y   u s i n g   a   p r o p e r   ' i s M o u n t e d '   s t a t e   p a t t e r n   f o r   ' l o c a l S t o r a g e '   i n i t i a l i z a t i o n . 
+ -   * * C r o s s - T a b   S y n c h r o n i z a t i o n : * *   I m p l e m e n t e d   a   ' s t o r a g e '   e v e n t   l i s t e n e r   t o   k e e p   r o o m   d a t a   i n   s y n c   a c r o s s   m u l t i p l e   b r o w s e r   t a b s . 
+ -   * * S e t t i n g s   M o d u l e : * *   C r e a t e d   ' s r c / a p p / s e t t i n g s / p a g e . t s x '   t o   a l l o w   d y n a m i c   c o n f i g u r a t i o n   o f   u t i l i t y   r a t e s   ( W a t e r / E l e c t r i c ) ,   r e m o v i n g   h a r d c o d e d   v a l u e s   f r o m   t h e   U I . 
+ -   * * B u g   F i x e s : * *   R e s o l v e d   s y n t a x   e r r o r s   i n   ' p a g e . t s x '   r e l a t e d   t o   t e m p l a t e   l i t e r a l   e s c a p i n g   a n d   r e s t o r e d   a c c i d e n t a l l y   r e m o v e d   P D F   r e p o r t i n g   f u n c t i o n s . 
+ -   * * V e r i f i c a t i o n : * *   F i n a l   ' n p m   r u n   b u i l d '   c o n f i r m e d   a   s t a b l e ,   e r r o r - f r e e   p r o d u c t i o n   b u i l d .  
+ 
+## [2026-05-20] Project Completion & Production Readiness Polish
+- **Customer Management Module:** Replaced the placeholder customer page with a premium registry UI featuring full CRUD, search, and unit filtering.
+- **Backend API Finalization:** Added missing PATCH and DELETE endpoints for the Customer model and updated Pydantic schemas for partial updates.
+- **Transaction History Enhancement:** Implemented date range filtering (Start Date / End Date) in the Transactions page to allow granular financial analysis.
+- **Full-Stack Dockerization:** Created optimized Dockerfiles for both Backend (FastAPI) and Frontend (Next.js) and a unified docker-compose.yml for production deployment.
+- **Developer Experience:** Generated .env.example files for both services and updated the README with comprehensive setup and LINE webhook instructions.
+- **Sidebar Integration:** Integrated the new Customers registry into the main navigation sidebar.
+
