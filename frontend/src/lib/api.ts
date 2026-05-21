@@ -185,6 +185,22 @@ export async function updateInvoiceStatus(invoiceId: number, status: string) {
   return res.json();
 }
 
+export async function updateInvoice(invoiceId: number, invoice: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(invoice),
+  });
+  return res.json();
+}
+
+export async function deleteInvoice(invoiceId: number) {
+  const res = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/`, {
+    method: 'DELETE',
+  });
+  return res.json();
+}
+
 export async function fetchTransactions() {
   const res = await fetch(`${API_BASE_URL}/transactions/`);
   return res.json();
@@ -200,6 +216,22 @@ export async function createTransaction(transaction: Record<string, unknown>) {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(transaction),
+  });
+  return res.json();
+}
+
+export async function updateTransaction(transactionId: number, transaction: Record<string, unknown>) {
+  const res = await fetch(`${API_BASE_URL}/transactions/${transactionId}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(transaction),
+  });
+  return res.json();
+}
+
+export async function deleteTransaction(transactionId: number) {
+  const res = await fetch(`${API_BASE_URL}/transactions/${transactionId}/`, {
+    method: 'DELETE',
   });
   return res.json();
 }
@@ -301,6 +333,35 @@ export async function updateRentalHouse(houseId: string, house: Record<string, u
   return mapRentalHouseToClient(data);
 }
 
+export async function createRentalHouse(house: Record<string, unknown>) {
+  const serverPayload = {
+    id: house.id,
+    ...mapRentalHouseToServer(house)
+  };
+  const res = await fetch(`${API_BASE_URL}/houses/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(serverPayload),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการสร้างบ้านเช่า");
+  }
+  const data = await res.json();
+  return mapRentalHouseToClient(data);
+}
+
+export async function deleteRentalHouse(houseId: string) {
+  const res = await fetch(`${API_BASE_URL}/houses/${houseId}/`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการลบข้อมูลบ้านเช่า");
+  }
+  return res.json();
+}
+
 export async function fetchHousePayments(houseId: string) {
   const res = await fetch(`${API_BASE_URL}/houses/${houseId}/payments/`);
   return res.json();
@@ -365,6 +426,17 @@ export async function updateMaintenanceTicketStatus(ticketId: number, status: st
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
   });
+  return res.json();
+}
+
+export async function deleteMaintenanceTicket(ticketId: number) {
+  const res = await fetch(`${API_BASE_URL}/maintenance-tickets/${ticketId}/`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการลบใบแจ้งซ่อม");
+  }
   return res.json();
 }
 

@@ -56,6 +56,29 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+def get_current_billing_month(ref_date_str: str = None) -> str:
+    from datetime import datetime, timedelta
+    if ref_date_str:
+        try:
+            date_part = ref_date_str.split(" ")[0].split("T")[0]
+            if "/" in date_part:
+                parts = date_part.split("/")
+                ref_date = datetime(int(parts[2]), int(parts[1]), int(parts[0]))
+            else:
+                ref_date = datetime.strptime(date_part, "%Y-%m-%d")
+        except Exception:
+            ref_date = datetime.now()
+    else:
+        ref_date = datetime.now()
+        
+    if ref_date.day >= 25:
+        return ref_date.strftime("%Y-%m")
+    else:
+        first_of_this_month = ref_date.replace(day=1)
+        prev_month_last_day = first_of_this_month - timedelta(days=1)
+        return prev_month_last_day.strftime("%Y-%m")
+
+
 # ==========================================
 # Auth Endpoint
 # ==========================================
@@ -351,6 +374,76 @@ def update_invoice_status(invoice_id: int, status: str, db: Session = Depends(ge
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid invoice status")
 
+@app.patch("/invoices/{invoice_id}/", response_model=schemas.Invoice)
+def update_invoice(invoice_id: int, invoice_update: schemas.InvoiceUpdate, db: Session = Depends(get_db)):
+    db_invoice = db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
+    if not db_invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+    
+    # Track status and amount changes for Ledger Sync
+    old_status = db_invoice.status
+
+    # Update fields
+    update_data = invoice_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        if key == "status" and value is not None:
+            db_invoice.status = models.InvoiceStatus(value)
+        else:
+            setattr(db_invoice, key, value)
+            
+    db.commit()
+    db.refresh(db_invoice)
+    
+    # Ledger Sync Reversal or Update Logic
+    ref_id = f"invoice_payment_{db_invoice.id}"
+    new_status = db_invoice.status
+    
+    if new_status == models.InvoiceStatus.PAID:
+        existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+        if not existing_tx:
+            # If changed from unpaid/cancelled to paid
+            db_tx = models.Transaction(
+                type=models.TransactionType.INCOME,
+                amount=db_invoice.amount,
+                description=f"รับชำระบิล: {db_invoice.title} (บิล ID: {db_invoice.id})",
+                reference_id=ref_id,
+                unit_id=db_invoice.unit_id,
+                customer_id=db_invoice.customer_id
+            )
+            db.add(db_tx)
+            db.commit()
+        else:
+            # If it was paid and remains paid, but details changed
+            existing_tx.amount = db_invoice.amount
+            existing_tx.description = f"รับชำระบิล: {db_invoice.title} (บิล ID: {db_invoice.id})"
+            existing_tx.unit_id = db_invoice.unit_id
+            existing_tx.customer_id = db_invoice.customer_id
+            db.commit()
+    else:
+        # If changed from paid to unpaid/cancelled, delete transaction to prevent Ghost Revenue
+        existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+        if existing_tx:
+            db.delete(existing_tx)
+            db.commit()
+
+    return db_invoice
+
+@app.delete("/invoices/{invoice_id}/")
+def delete_invoice(invoice_id: int, db: Session = Depends(get_db)):
+    db_invoice = db.query(models.Invoice).filter(models.Invoice.id == invoice_id).first()
+    if not db_invoice:
+        raise HTTPException(status_code=404, detail="Invoice not found")
+        
+    # Reversal Sync: delete transaction if it was paid
+    ref_id = f"invoice_payment_{invoice_id}"
+    existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+    if existing_tx:
+        db.delete(existing_tx)
+        
+    db.delete(db_invoice)
+    db.commit()
+    return {"status": "success", "message": "Invoice deleted successfully"}
+
 # Helper to map categories to Thai
 EXPENSE_CATEGORY_THAI = {
     models.ExpenseCategory.WATER_BILL: "ค่าน้ำประปาหลวงส่วนกลาง (Water Bill)",
@@ -436,6 +529,49 @@ async def create_transaction(transaction: schemas.TransactionCreate, db: Session
 @app.get("/transactions/", response_model=List[schemas.Transaction])
 def read_transactions(db: Session = Depends(get_db)):
     return db.query(models.Transaction).order_by(models.Transaction.created_at.desc()).all()
+
+@app.patch("/transactions/{transaction_id}/", response_model=schemas.Transaction)
+def update_transaction(transaction_id: int, tx_update: schemas.TransactionUpdate, db: Session = Depends(get_db)):
+    db_tx = db.query(models.Transaction).filter(models.Transaction.id == transaction_id).first()
+    if not db_tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+        
+    # Security Rule: Block editing automatic system transactions directly from transactions ledger
+    ref = db_tx.reference_id or ""
+    if ref.startswith("dorm_payment_") or ref.startswith("house_payment_") or ref.startswith("garage_payment_") or ref.startswith("invoice_payment_"):
+        raise HTTPException(status_code=400, detail="ไม่อนุญาตให้แก้ไขธุรกรรมที่เชื่อมต่อระบบอัตโนมัติโดยตรงจากหน้านี้ กรุณาไปแก้ไขหรือเปลี่ยนสถานะที่ Entity ต้นทาง (บิล/อสังหาริมทรัพย์) เพื่อคงความสมบูรณ์และถูกต้องของสมุดบัญชี")
+        
+    # Update fields
+    update_data = tx_update.dict(exclude_unset=True)
+    for key, value in update_data.items():
+        if key == "type" and value is not None:
+            db_tx.type = models.TransactionType(value)
+        elif key == "expense_category" and value is not None:
+            if value == "":
+                db_tx.expense_category = None
+            else:
+                db_tx.expense_category = models.ExpenseCategory(value)
+        else:
+            setattr(db_tx, key, value)
+            
+    db.commit()
+    db.refresh(db_tx)
+    return db_tx
+
+@app.delete("/transactions/{transaction_id}/")
+def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
+    db_tx = db.query(models.Transaction).filter(models.Transaction.id == transaction_id).first()
+    if not db_tx:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+        
+    # Security Rule: Block deleting automatic system transactions directly from transactions ledger
+    ref = db_tx.reference_id or ""
+    if ref.startswith("dorm_payment_") or ref.startswith("house_payment_") or ref.startswith("garage_payment_") or ref.startswith("invoice_payment_"):
+        raise HTTPException(status_code=400, detail="ไม่อนุญาตให้ลบหรือโมฆะธุรกรรมที่เชื่อมต่อระบบอัตโนมัติโดยตรงจากหน้านี้ กรุณาไปเปลี่ยนสถานะที่ Entity ต้นทาง (บิล/อสังหาริมทรัพย์) เพื่อคงความถูกต้องของงบแสดงรายรับและยอดสรุปทางการเงิน")
+        
+    db.delete(db_tx)
+    db.commit()
+    return {"status": "success", "message": "Transaction deleted successfully"}
 
 from sqlalchemy import func
 
@@ -862,7 +998,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                     trans_date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
                     
                 # Bookkeeping & Saving payment status
-                current_month_key = datetime.now().strftime("%Y-%m")
+                current_month_key = get_current_billing_month(trans_date_str)
                 if payment_type == "dorm":
                     room.payment_status = "paid"
                     room.payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -1313,7 +1449,10 @@ async def send_billing_reminder(send_line: bool = False, db: Session = Depends(g
 
 @app.post("/rooms/apply-daily-fines/")
 def apply_daily_fines(force: bool = False, db: Session = Depends(get_db)):
-    today = datetime.now()
+    # Thailand timezone is UTC+7
+    from datetime import timezone
+    tz_bangkok = timezone(timedelta(hours=7))
+    today = datetime.now(tz_bangkok)
     current_day = today.day
     
     # Check if we are inside the fine application period (6th of month to 24th of month)
@@ -1415,6 +1554,19 @@ async def update_maintenance_ticket(ticket_id: int, ticket_update: schemas.Maint
     db.refresh(ticket)
     return ticket
 
+@app.delete("/maintenance-tickets/{ticket_id}/")
+def delete_maintenance_ticket(ticket_id: int, db: Session = Depends(get_db)):
+    ticket = db.query(models.MaintenanceTicket).filter(models.MaintenanceTicket.id == ticket_id).first()
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Maintenance ticket not found")
+    try:
+        db.delete(ticket)
+        db.commit()
+        return {"status": "success", "message": f"ลบใบงานแจ้งซ่อม #{ticket_id} เรียบร้อยแล้ว"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการลบใบแจ้งซ่อม: {str(e)}")
+
 # Dormitory Endpoints
 @app.get("/rooms/", response_model=List[schemas.DormRoom])
 def read_rooms(db: Session = Depends(get_db)):
@@ -1437,7 +1589,7 @@ def update_room(dorm_key: str, number: str, room_update: schemas.DormRoomUpdate,
         print(f"DEBUG: Error updating room: {e}")
         raise HTTPException(status_code=500, detail=str(e))
     
-    current_month_key = datetime.now().strftime("%Y-%m")
+    current_month_key = get_current_billing_month(room.payment_date)
     ref_id = f"dorm_payment_{room.id}_{current_month_key}"
     
     if room.payment_status == "paid" and old_status != "paid" and room.tenant:
@@ -1534,7 +1686,7 @@ def update_rental_house(house_id: str, house_update: schemas.RentalHouseUpdate, 
     old_status = db_house.payment_status
     for key, value in house_update.dict(exclude_unset=True).items(): setattr(db_house, key, value)
     db.commit(); db.refresh(db_house)
-    current_month_key = datetime.now().strftime("%Y-%m")
+    current_month_key = get_current_billing_month(db_house.last_payment_date)
     ref_id = f"house_payment_{db_house.id}_{current_month_key}"
     
     if db_house.payment_status == "paid" and old_status != "paid" and db_house.tenant_name:
@@ -1555,6 +1707,61 @@ def update_rental_house(house_id: str, house_update: schemas.RentalHouseUpdate, 
             db.delete(pmt)
         db.commit()
     return db_house
+
+@app.post("/houses/", response_model=schemas.RentalHouse)
+def create_rental_house(house: schemas.RentalHouseCreate, db: Session = Depends(get_db)):
+    existing_house = db.query(models.RentalHouse).filter(models.RentalHouse.id == house.id).first()
+    if existing_house:
+        raise HTTPException(status_code=400, detail=f"มีบ้านเช่ารหัส {house.id} ในระบบแล้ว")
+        
+    unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.name == house.name).first()
+    if not unit:
+        unit = models.BusinessUnit(name=house.name, type=models.UnitType.HOUSE)
+        db.add(unit)
+        db.flush()
+        
+    db_house = models.RentalHouse(**house.dict())
+    try:
+        db.add(db_house)
+        db.commit()
+        db.refresh(db_house)
+        return db_house
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการสร้างบ้านเช่า: {str(e)}")
+
+@app.delete("/houses/{house_id}/")
+def delete_rental_house(house_id: str, db: Session = Depends(get_db)):
+    db_house = db.query(models.RentalHouse).filter(models.RentalHouse.id == house_id).first()
+    if not db_house:
+        raise HTTPException(status_code=404, detail="ไม่พบข้อมูลบ้านเช่า")
+        
+    paid_payments = db.query(models.HousePayment).filter(
+        models.HousePayment.house_id == house_id, 
+        models.HousePayment.payment_status == "paid"
+    ).first()
+    
+    unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.name == db_house.name).first()
+    has_transactions = False
+    if unit:
+        has_transactions = db.query(models.Transaction).filter(models.Transaction.unit_id == unit.id).first() is not None
+        
+    if paid_payments or has_transactions:
+        raise HTTPException(
+            status_code=400, 
+            detail="ไม่สามารถลบข้อมูลบ้านเช่านี้ได้ เนื่องจากมีการบันทึกการชำระเงินหรือรายการธุรกรรมทางการเงินในระบบบัญชีแยกประเภทแล้ว เพื่อรักษาความถูกต้องและโปร่งใสของข้อมูลทางบัญชี (Ledger Integrity Safeguard)"
+        )
+        
+    try:
+        db.query(models.HousePayment).filter(models.HousePayment.house_id == house_id).delete()
+        if unit and not has_transactions:
+            db.delete(unit)
+        db.delete(db_house)
+        db.commit()
+        return {"status": "success", "message": f"ลบข้อมูลบ้านเช่า {db_house.name} เรียบร้อยแล้ว"}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"เกิดข้อผิดพลาดในการลบข้อมูลบ้านเช่า: {str(e)}")
 
 # Lease Agreement Endpoints
 @app.get("/leases/expiring/")
@@ -1647,7 +1854,7 @@ async def verify_slip(type: str, target_id: str, qr_data: Optional[str] = None, 
     
     # 1. Calculate Expected Amount and Get Object References
     expected_amount = 0.0
-    current_month_key = datetime.now().strftime("%Y-%m")
+    current_month_key = get_current_billing_month()
     
     room = None
     house = None
@@ -1749,6 +1956,11 @@ async def verify_slip(type: str, target_id: str, qr_data: Optional[str] = None, 
         ref_no = data.get("transRef")
         if not ref_no:
             raise HTTPException(status_code=400, detail="ไม่พบรหัสอ้างอิงธุรกรรม (Transaction Reference) ในสลิป")
+            
+        # Recalculate billing month based on actual transaction date if available
+        trans_date_str = data.get("transDate")
+        if trans_date_str:
+            current_month_key = get_current_billing_month(trans_date_str)
             
         # Duplicate Prevention Checklist
         existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_no).first()

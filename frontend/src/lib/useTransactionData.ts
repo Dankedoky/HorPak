@@ -19,6 +19,7 @@ export interface Transaction {
   unit_id: number | null;
   created_at: string;
   unit?: BusinessUnit;
+  reference_id?: string | null;
 }
 
 export interface TransactionDashboard {

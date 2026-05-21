@@ -48,6 +48,21 @@ class Invoice(InvoiceBase):
     class Config:
         from_attributes = True
 
+class InvoiceUpdate(BaseModel):
+    title: Optional[str] = None
+    amount: Optional[float] = None
+    status: Optional[InvoiceStatus] = None
+    due_date: Optional[datetime] = None
+    customer_id: Optional[int] = None
+    unit_id: Optional[int] = None
+
+    @field_validator('due_date', mode='before')
+    @classmethod
+    def parse_due_date(cls, v: Any) -> Any:
+        if v == "":
+            return None
+        return v
+
 class CustomerBase(BaseModel):
     name: str
     phone: Optional[str] = None
@@ -101,6 +116,15 @@ class Transaction(TransactionBase):
 
     class Config:
         from_attributes = True
+
+class TransactionUpdate(BaseModel):
+    type: Optional[TransactionType] = None
+    amount: Optional[float] = None
+    description: Optional[str] = None
+    reference_id: Optional[str] = None
+    unit_id: Optional[int] = None
+    customer_id: Optional[int] = None
+    expense_category: Optional[ExpenseCategory] = None
 
 class BusinessUnitSummary(BaseModel):
     id: int

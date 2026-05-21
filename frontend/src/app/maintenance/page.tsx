@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchMaintenanceTickets, updateMaintenanceTicketStatus } from "@/lib/api";
+import { fetchMaintenanceTickets, updateMaintenanceTicketStatus, deleteMaintenanceTicket } from "@/lib/api";
 
 interface MaintenanceTicket {
   id: number;
@@ -74,6 +74,22 @@ export default function MaintenancePage() {
     } catch (err) {
       console.error("Error updating status:", err);
       alert("❌ เกิดข้อผิดพลาดในการอัปเดตสถานะ");
+    } finally {
+      setUpdatingId(null);
+    }
+  };
+
+  const handleDeleteTicket = async (id: number) => {
+    const ok = window.confirm(`⚠️ คุณแน่ใจหรือไม่ว่าต้องการลบใบแจ้งซ่อม #${id}?\nการดำเนินการนี้จะลบข้อมูลออกจากระบบอย่างถาวรและไม่สามารถกู้คืนได้`);
+    if (!ok) return;
+
+    setUpdatingId(id);
+    try {
+      await deleteMaintenanceTicket(id);
+      setTickets(prev => prev.filter(t => t.id !== id));
+    } catch (err: any) {
+      console.error("Error deleting ticket:", err);
+      alert(`❌ ${err.message || "เกิดข้อผิดพลาดในการลบใบแจ้งซ่อม"}`);
     } finally {
       setUpdatingId(null);
     }
@@ -257,9 +273,21 @@ export default function MaintenancePage() {
                 <div>
                   {/* Badge & Ticket ID */}
                   <div className="flex justify-between items-center mb-4">
-                    <span className="text-[11px] font-black text-slate-400 tracking-wider">
-                      TICKET #{ticket.id}
-                    </span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-black text-slate-400 tracking-wider">
+                        TICKET #{ticket.id}
+                      </span>
+                      <button
+                        onClick={() => handleDeleteTicket(ticket.id)}
+                        disabled={updatingId === ticket.id}
+                        className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded-lg transition-colors active:scale-95 duration-200"
+                        title="ลบใบงาน"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                        </svg>
+                      </button>
+                    </div>
                     <span className={`px-2.5 py-1 text-[10px] font-black rounded-lg border flex items-center gap-1.5 ${config.color}`}>
                       <span>{config.badge}</span>
                       <span>{config.label}</span>

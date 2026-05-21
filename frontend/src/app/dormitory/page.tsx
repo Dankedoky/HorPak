@@ -1332,8 +1332,8 @@ export default function DormitoryPage() {
                                 const newDateStr = e.target.value;
                                 setPaymentDate(newDateStr);
                                 if (newDateStr) {
-                                  const dateObj = new Date(newDateStr);
-                                  const day = dateObj.getDate();
+                                  const parts = newDateStr.split("-");
+                                  const day = parts.length === 3 ? parseInt(parts[2], 10) : 0;
                                   if (day >= 6 && day <= 24) {
                                     setLateDays((day - 5).toString());
                                   } else {

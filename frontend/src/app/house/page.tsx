@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { fetchRentalHouses, updateRentalHouse, fetchHousePayments } from "@/lib/api";
+import { fetchRentalHouses, updateRentalHouse, fetchHousePayments, createRentalHouse, deleteRentalHouse } from "@/lib/api";
 import PromptPayQRCard from "../PromptPayQRCard";
 
 interface RentalHouse {
@@ -41,6 +41,8 @@ export default function HousePage() {
 
   // Form State
   const [formData, setFormData] = useState({
+    id: "",
+    name: "",
     tenantName: "",
     monthlyRent: 0,
     waterBill: 0,
@@ -88,12 +90,51 @@ export default function HousePage() {
         console.error("Failed to save rental house:", err);
         alert("❌ เกิดข้อผิดพลาดในการบันทึกข้อมูลบ้านเช่า");
       }
+    } else {
+      if (!formData.id.trim() || !formData.name.trim()) {
+        alert("⚠️ กรุณากรอกรหัสบ้านเช่าและชื่อบ้านเช่าให้ครบถ้วน");
+        return;
+      }
+      try {
+        const newHouse = await createRentalHouse(formData);
+        setHouses([...houses, newHouse]);
+        setIsModalOpen(false);
+      } catch (err: any) {
+        console.error("Failed to create rental house:", err);
+        alert(`❌ ${err.message || "เกิดข้อผิดพลาดในการสร้างบ้านเช่า"}`);
+      }
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!editingHouse) return;
+    
+    const confirmName = prompt(
+      `⚠️ คำเตือน: ระบบจะทำการตรวจสอบประวัติการเงินเพื่อความปลอดภัยของระบบบัญชี\nกรุณาพิมพ์ชื่อบ้าน "${editingHouse.name}" เพื่อยืนยันการลบ:`
+    );
+    
+    if (confirmName !== editingHouse.name) {
+      alert("❌ ชื่อบ้านไม่ถูกต้อง การลบถูกยกเลิก");
+      return;
+    }
+    
+    try {
+      await deleteRentalHouse(editingHouse.id);
+      setHouses(houses.filter(h => h.id !== editingHouse.id));
+      setIsModalOpen(false);
+      setEditingHouse(null);
+      alert("✅ ลบข้อมูลบ้านเช่าและหน่วยธุรกิจที่เกี่ยวข้องสำเร็จแล้ว");
+    } catch (err: any) {
+      console.error("Failed to delete rental house:", err);
+      alert(`❌ ${err.message || "ไม่สามารถลบบ้านเช่าได้เนื่องจากข้อจำกัด CASCADE ทางบัญชี"}`);
     }
   };
 
   const openEdit = (house: RentalHouse) => {
     setEditingHouse(house);
     setFormData({
+      id: house.id,
+      name: house.name,
       tenantName: house.tenantName,
       monthlyRent: house.monthlyRent,
       waterBill: house.waterBill,
@@ -107,6 +148,25 @@ export default function HousePage() {
     setPayments([]);
     setIsModalOpen(true);
     loadPaymentHistory(house.id);
+  };
+
+  const openCreate = () => {
+    setEditingHouse(null);
+    setFormData({
+      id: "",
+      name: "",
+      tenantName: "",
+      monthlyRent: 0,
+      waterBill: 0,
+      electricBill: 0,
+      paymentStatus: "unpaid",
+      leaseStartDate: "",
+      leaseEndDate: "",
+      deposit: 0,
+      leaseStatus: "active",
+    });
+    setPayments([]);
+    setIsModalOpen(true);
   };
 
   const togglePayment = async (id: string) => {
@@ -148,6 +208,12 @@ export default function HousePage() {
           <h1 className="text-2xl font-black text-slate-800 tracking-tight">ระบบบ้านเช่า (Rental House)</h1>
           <p className="text-slate-500 text-xs mt-0.5">จัดการบ้านเช่า, ติดตามสัญญา และการชำระเงินรายเดือน</p>
         </div>
+        <button
+          onClick={openCreate}
+          className="px-4 py-2.5 bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-600 hover:to-orange-700 text-white rounded-2xl text-xs font-black transition-all shadow-lg shadow-amber-500/20 flex items-center gap-2 hover:scale-[1.02]"
+        >
+          ➕ เพิ่มบ้านเช่าใหม่
+        </button>
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -269,8 +335,34 @@ export default function HousePage() {
               {/* Left Column: Form Fields */}
               <div className="space-y-4">
                 <h3 className="text-xs font-black text-slate-400 uppercase tracking-wider pb-1 border-b border-slate-100">
-                  ข้อมูลผู้เช่าและค่าบริการ
+                  ข้อมูลบ้านเช่าและผู้เช่า
                 </h3>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">รหัสบ้านเช่า</label>
+                    <input
+                      type="text"
+                      value={formData.id}
+                      onChange={(e) => setFormData({ ...formData, id: e.target.value })}
+                      disabled={editingHouse !== null}
+                      className={`w-full px-4 py-2.5 border rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition outline-none text-sm font-bold ${
+                        editingHouse !== null ? "bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed" : "bg-slate-50 border-slate-200 text-slate-700"
+                      }`}
+                      placeholder="e.g. h4"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">ชื่อบ้านเช่า</label>
+                    <input
+                      type="text"
+                      value={formData.name}
+                      onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                      className="w-full px-4 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500 transition outline-none text-sm font-bold text-slate-700"
+                      placeholder="e.g. บ้านเช่า หลังที่ 4"
+                    />
+                  </div>
+                </div>
                 
                 <div>
                   <label className="block text-[10px] font-bold text-slate-400 uppercase mb-1 ml-1">ชื่อผู้เช่า</label>
@@ -403,19 +495,29 @@ export default function HousePage() {
               </div>
             </div>
             
-            <div className="p-6 bg-slate-50 border-t border-slate-100 flex gap-3">
-              <button
-                onClick={() => setIsModalOpen(false)}
-                className="flex-1 py-3 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition"
-              >
-                ยกเลิก
-              </button>
-              <button
-                onClick={handleSave}
-                className="flex-1 py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition shadow-lg shadow-amber-600/20"
-              >
-                บันทึกข้อมูล
-              </button>
+            <div className="p-6 bg-slate-50 border-t border-slate-100 flex justify-between gap-3">
+              {editingHouse && (
+                <button
+                  onClick={handleDelete}
+                  className="px-4 py-3 bg-rose-50 text-rose-600 border border-rose-200 hover:bg-rose-100 font-bold rounded-xl transition flex items-center gap-1.5"
+                >
+                  🗑️ ลบบ้านเช่านี้
+                </button>
+              )}
+              <div className="flex gap-3 flex-1 justify-end">
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="px-6 py-3 bg-white border border-slate-200 text-slate-600 font-bold rounded-xl hover:bg-slate-100 transition"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  onClick={handleSave}
+                  className="px-6 py-3 bg-amber-600 text-white font-bold rounded-xl hover:bg-amber-700 transition shadow-lg shadow-amber-600/20"
+                >
+                  บันทึกข้อมูล
+                </button>
+              </div>
             </div>
           </div>
         </div>

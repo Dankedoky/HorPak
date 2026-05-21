@@ -6,7 +6,9 @@ import {
   fetchCustomers, 
   fetchUnits, 
   createInvoice, 
-  updateInvoiceStatus 
+  updateInvoiceStatus,
+  updateInvoice,
+  deleteInvoice
 } from "@/lib/api";
 import PromptPayQRCard from "../PromptPayQRCard";
 
@@ -62,6 +64,16 @@ export default function InvoicesPage() {
   const [newUnitId, setNewUnitId] = useState("");
   const [newDueDate, setNewDueDate] = useState("");
   const [newStatus, setNewStatus] = useState<"paid" | "unpaid">("unpaid");
+
+  // Edit Invoice Form States
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editInvoiceId, setEditInvoiceId] = useState<number | null>(null);
+  const [editTitle, setEditTitle] = useState("");
+  const [editAmount, setEditAmount] = useState("");
+  const [editCustomerId, setEditCustomerId] = useState("");
+  const [editUnitId, setEditUnitId] = useState("");
+  const [editDueDate, setEditDueDate] = useState("");
+  const [editStatus, setEditStatus] = useState<"paid" | "unpaid" | "cancelled">("unpaid");
 
   // Toast States
   const [toastMsg, setToastMsg] = useState("");
@@ -133,6 +145,75 @@ export default function InvoicesPage() {
       alert("ไม่สามารถบันทึกข้อมูลใบแจ้งหนี้ได้: " + err.message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEditModal = (inv: Invoice) => {
+    setEditInvoiceId(inv.id);
+    setEditTitle(inv.title);
+    setEditAmount(inv.amount.toString());
+    setEditCustomerId(inv.customer_id.toString());
+    setEditUnitId(inv.unit_id.toString());
+    setEditDueDate(inv.due_date ? new Date(inv.due_date).toISOString().split('T')[0] : "");
+    setEditStatus(inv.status);
+    setShowEditModal(true);
+  };
+
+  const handleEditInvoiceSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editInvoiceId) return;
+    const amount = parseFloat(editAmount);
+    if (!editTitle.trim()) return alert("กรุณากรอกชื่อรายการแจ้งหนี้");
+    if (isNaN(amount) || amount <= 0) return alert("กรุณาระบุจำนวนเงินที่ถูกต้อง");
+    if (!editCustomerId) return alert("กรุณาเลือกผู้เช่า/ลูกค้าผู้ชำระเงิน");
+    if (!editUnitId) return alert("กรุณาเลือกประเภทหน่วยธุรกิจ");
+
+    setIsSubmitting(true);
+    try {
+      const updated = await updateInvoice(editInvoiceId, {
+        title: editTitle.trim(),
+        amount: amount,
+        status: editStatus,
+        due_date: editDueDate ? new Date(editDueDate).toISOString() : null,
+        customer_id: parseInt(editCustomerId),
+        unit_id: parseInt(editUnitId)
+      });
+
+      triggerToast("🎉 แก้ไขรายละเอียดใบแจ้งหนี้สำเร็จแล้ว!");
+      
+      if (selectedInvoice && selectedInvoice.id === editInvoiceId) {
+        setSelectedInvoice({
+          ...selectedInvoice,
+          title: updated.title,
+          amount: updated.amount,
+          status: updated.status,
+          due_date: updated.due_date,
+          customer_id: updated.customer_id,
+          unit_id: updated.unit_id,
+          customer: customers.find(c => c.id === updated.customer_id),
+          unit: units.find(u => u.id === updated.unit_id)
+        });
+      }
+
+      setShowEditModal(false);
+      await loadData();
+    } catch (err: any) {
+      alert("ไม่สามารถอัปเดตข้อมูลใบแจ้งหนี้ได้: " + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteInvoice = async (invoiceId: number) => {
+    if (!confirm("⚠️ คุณแน่ใจหรือไม่ว่าต้องการลบใบแจ้งหนี้รายการนี้?\nการลบใบแจ้งหนี้จะย้อนกลับรายการบัญชี/ลบรายการเดินเงินที่เชื่อมโยงโดยอัตโนมัติ เพื่อป้องกันการบันทึกงบการเงินซ้ำซ้อน")) return;
+    
+    try {
+      await deleteInvoice(invoiceId);
+      triggerToast("🗑️ ลบใบแจ้งหนี้ออกจากระบบเรียบร้อยแล้ว!");
+      setSelectedInvoice(null);
+      await loadData();
+    } catch (err: any) {
+      alert("เกิดข้อผิดพลาดในการลบบิล: " + err.message);
     }
   };
 
@@ -659,6 +740,146 @@ export default function InvoicesPage() {
         </div>
       )}
 
+      {/* --- EDIT INVOICE DIALOG --- */}
+      {showEditModal && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out] overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 lg:p-7 max-w-md w-full border border-slate-100 shadow-2xl relative my-auto animate-[scaleUp_0.2s_ease-out] space-y-4">
+            
+            {/* Modal Header */}
+            <div>
+              <h3 className="text-md font-black text-slate-800 flex items-center gap-2">
+                <span>✏️ แก้ไขบิลและใบแจ้งหนี้</span>
+              </h3>
+              <p className="text-slate-400 text-[10px] font-bold">แก้ไขข้อมูลการเรียกเก็บเงินและวันสิ้นสุดของบิลรายการนี้</p>
+            </div>
+
+            {/* Close cross */}
+            <button
+              onClick={() => setShowEditModal(false)}
+              className="absolute right-5 top-4 text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded-lg cursor-pointer transition"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <form onSubmit={handleEditInvoiceSubmit} className="space-y-4 pt-2">
+              
+              {/* Title */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">ชื่อรายการออกบิล</label>
+                <input
+                  type="text"
+                  required
+                  value={editTitle}
+                  onChange={(e) => setEditTitle(e.target.value)}
+                  placeholder="เช่น: ค่าเช่าห้อง 302, ค่าเปลี่ยนถ่ายน้ำมันเครื่องรถตู้"
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-xs font-semibold text-slate-800"
+                />
+              </div>
+
+              {/* Amount */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">ยอดเงินเรียกเก็บ (บาท)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="1"
+                    required
+                    value={editAmount}
+                    onChange={(e) => setEditAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-sm font-black text-slate-800"
+                  />
+                  <span className="absolute right-4 top-3.5 text-xs font-bold text-slate-400">THB ฿</span>
+                </div>
+              </div>
+
+              {/* Customer Selector */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">ลูกค้าผู้จ่ายเงิน</label>
+                <select
+                  required
+                  value={editCustomerId}
+                  onChange={(e) => setEditCustomerId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-xs font-bold text-slate-700 cursor-pointer"
+                >
+                  <option value="">— กรุณาเลือกผู้พักอาศัย/ลูกค้าในระบบ —</option>
+                  {customers.map(c => (
+                    <option key={c.id} value={c.id.toString()}>👤 {c.name} {c.phone ? `(${c.phone})` : ""}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Business Unit Selector */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">ออกในนามธุรกิจ</label>
+                <select
+                  required
+                  value={editUnitId}
+                  onChange={(e) => setEditUnitId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-xs font-bold text-slate-700 cursor-pointer"
+                >
+                  <option value="">— กรุณาเลือกธุรกิจ —</option>
+                  {units.map(u => (
+                    <option key={u.id} value={u.id.toString()}>🏢 {u.name} ({u.type})</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Grid: Due Date & Status */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase">วันสิ้นสุดบิล</label>
+                  <input
+                    type="date"
+                    value={editDueDate}
+                    onChange={(e) => setEditDueDate(e.target.value)}
+                    className="w-full px-2 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-[10px] font-semibold text-slate-800"
+                  />
+                </div>
+                <div className="space-y-1">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase">สถานะบิล</label>
+                  <select
+                    value={editStatus}
+                    onChange={(e) => setEditStatus(e.target.value as any)}
+                    className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-xs font-bold text-slate-700 cursor-pointer"
+                  >
+                    <option value="unpaid">🔴 ค้างชำระ</option>
+                    <option value="paid">🟢 ชำระเงินแล้ว</option>
+                    <option value="cancelled">⚫ ยกเลิกบิล</option>
+                  </select>
+                </div>
+              </div>
+
+              {/* Submit / Cancel buttons */}
+              <div className="flex gap-2.5 pt-4 border-t border-slate-100 mt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowEditModal(false)}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl text-xs font-black transition cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-xs font-black transition shadow-md shadow-blue-600/10 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isSubmitting ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>💾 บันทึกการแก้ไข</span>
+                  )}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* --- PREMIUM TAX INVOICE / RECEIPT VIEWER MODAL (ใบเสร็จรับเงิน/ใบกำกับภาษี) --- */}
       {selectedInvoice && (() => {
         const inv = selectedInvoice;
@@ -701,6 +922,20 @@ export default function InvoicesPage() {
                   >
                     <span>💸</span>
                     <span>{inv.status === "paid" ? "เปลี่ยนเป็นค้างชำระ" : "ทำเครื่องหมายว่าจ่ายแล้ว"}</span>
+                  </button>
+                  <button
+                    onClick={() => handleOpenEditModal(inv)}
+                    className="flex items-center gap-1 px-3 py-2 bg-amber-50 hover:bg-amber-100 text-amber-600 border border-amber-200 rounded-xl text-[10px] font-black transition cursor-pointer active:scale-95"
+                  >
+                    <span>✏️</span>
+                    <span>แก้ไขบิล</span>
+                  </button>
+                  <button
+                    onClick={() => handleDeleteInvoice(inv.id)}
+                    className="flex items-center gap-1 px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 border border-rose-200 rounded-xl text-[10px] font-black transition cursor-pointer active:scale-95"
+                  >
+                    <span>🗑️</span>
+                    <span>ลบบิล</span>
                   </button>
                 </div>
 

@@ -5,7 +5,9 @@ import {
   fetchTransactions, 
   fetchTransactionSummary, 
   createTransaction, 
-  fetchUnits 
+  fetchUnits,
+  updateTransaction,
+  deleteTransaction
 } from "@/lib/api";
 import { TransactionType } from "@/lib/useTransactionData";
 
@@ -24,6 +26,7 @@ interface Transaction {
   created_at: string;
   unit?: BusinessUnit;
   expense_category?: string | null;
+  reference_id?: string | null;
 }
 
 interface BusinessUnitSummary {
@@ -76,6 +79,15 @@ export default function FinancialAccountingPage() {
   const [newTxUnitId, setNewTxUnitId] = useState<string>("general");
   const [newTxCategory, setNewTxCategory] = useState<string>("other");
   const [toastMessage, setToastMessage] = useState("");
+
+  // Edit Modal States
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingTx, setEditingTx] = useState<Transaction | null>(null);
+  const [editTxType, setEditTxType] = useState<TransactionType>(TransactionType.INCOME);
+  const [editTxAmount, setEditTxAmount] = useState("");
+  const [editTxDesc, setEditTxDesc] = useState("");
+  const [editTxUnitId, setEditTxUnitId] = useState<string>("general");
+  const [editTxCategory, setEditTxCategory] = useState<string>("other");
 
   // Loading flag for SSR mount check
   const [isMounted, setIsMounted] = useState(false);
@@ -145,11 +157,75 @@ export default function FinancialAccountingPage() {
       triggerToast("🎉 บันทึกธุรกรรมการเงินเรียบร้อยแล้ว!");
       
       // Reload financial records
-      await setTimeout(() => loadAllData(), 0);
+      await loadAllData();
     } catch (err: any) {
       alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลการเงิน: " + err.message);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleOpenEditModal = (t: Transaction) => {
+    setEditingTx(t);
+    setEditTxType(t.type);
+    setEditTxAmount(t.amount.toString());
+    setEditTxDesc(t.description);
+    setEditTxUnitId(t.unit_id ? t.unit_id.toString() : "general");
+    setEditTxCategory(t.expense_category || "other");
+    setShowEditModal(true);
+  };
+
+  const handleEditTransactionSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTx) return;
+
+    const amount = parseFloat(editTxAmount);
+    if (isNaN(amount) || amount <= 0) {
+      alert("กรุณากรอกจำนวนเงินให้ถูกต้องและมากกว่า 0");
+      return;
+    }
+    if (!editTxDesc.trim()) {
+      alert("กรุณาระบุรายละเอียดของรายการ");
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const unitIdPayload = editTxUnitId === "general" ? null : parseInt(editTxUnitId);
+      await updateTransaction(editingTx.id, {
+        type: editTxType,
+        amount: amount,
+        description: editTxDesc.trim(),
+        unit_id: unitIdPayload,
+        expense_category: editTxType === TransactionType.EXPENSE ? editTxCategory : null
+      });
+
+      setShowEditModal(false);
+      setEditingTx(null);
+      triggerToast("🎉 อัปเดตธุรกรรมการเงินเรียบร้อยแล้ว!");
+      loadAllData();
+    } catch (err: any) {
+      alert("เกิดข้อผิดพลาดในการบันทึกข้อมูลการเงิน: " + err.message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleDeleteTransaction = async (t: Transaction) => {
+    const ok = window.confirm(`⚠️ คุณแน่ใจหรือไม่ว่าต้องการลบธุรกรรม:\n"${t.description}"\nมูลค่า ${t.amount.toLocaleString()} ฿?\nการดำเนินการนี้จะลบข้อมูลออกจากระบบอย่างถาวรและไม่สามารถกู้คืนได้`);
+    if (!ok) return;
+
+    try {
+      const res = await deleteTransaction(t.id);
+      if (res.status === "success" || res.message) {
+        triggerToast("🗑️ ลบธุรกรรมเรียบร้อยแล้ว!");
+        loadAllData();
+      } else {
+        alert("เกิดข้อผิดพลาดในการลบธุรกรรม");
+      }
+    } catch (err: any) {
+      console.error("Error deleting transaction:", err);
+      alert(`❌ ${err.message || "เกิดข้อผิดพลาดในการลบธุรกรรม"}`);
     }
   };
 
@@ -656,12 +732,13 @@ export default function FinancialAccountingPage() {
                 <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-wider">รายละเอียด</th>
                 <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-wider text-right">จำนวนเงินสุทธิ</th>
                 <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-wider text-center">ประเภทบัญชี</th>
+                <th className="px-6 py-4 text-[11px] font-black text-slate-400 uppercase tracking-wider text-center">การจัดการ</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-50">
               {isLoading ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-20 text-center">
+                  <td colSpan={6} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center gap-3">
                       <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin"></div>
                       <span className="text-xs font-extrabold text-slate-400">กำลังเชื่อมโยงฐานข้อมูลการเงิน...</span>
@@ -670,7 +747,7 @@ export default function FinancialAccountingPage() {
                 </tr>
               ) : processedTransactions.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="px-6 py-20 text-center">
+                  <td colSpan={6} className="px-6 py-20 text-center">
                     <div className="flex flex-col items-center gap-2 text-slate-300">
                       <span className="text-5xl">📁</span>
                       <span className="text-sm font-black text-slate-400">ไม่พบรายการทางการเงินตามตัวคัดกรอง</span>
@@ -742,6 +819,37 @@ export default function FinancialAccountingPage() {
                       }`}>
                         {t.type === TransactionType.INCOME ? "📥 รายรับ" : "📤 รายจ่าย"}
                       </span>
+                    </td>
+
+                    {/* Actions */}
+                    <td className="px-6 py-4 text-center">
+                      {(() => {
+                        const ref = t.reference_id || "";
+                        const isSystem = ref.startsWith("dorm_payment_") || ref.startsWith("house_payment_") || ref.startsWith("garage_payment_") || ref.startsWith("invoice_payment_");
+                        if (isSystem) {
+                          return (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-slate-100 text-slate-500 rounded-lg text-[10px] font-extrabold border border-slate-200" title="ธุรกรรมนี้ถูกสร้างโดยระบบอัตโนมัติ ไม่สามารถลบ/แก้ไขได้โดยตรง">
+                              🔒 ระบบล็อก
+                            </span>
+                          );
+                        }
+                        return (
+                          <div className="flex items-center justify-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={() => handleOpenEditModal(t)}
+                              className="p-1 px-2 text-[10px] bg-slate-100 hover:bg-slate-200 text-slate-700 hover:text-slate-900 font-extrabold rounded transition cursor-pointer"
+                            >
+                              ✏️ แก้ไข
+                            </button>
+                            <button
+                              onClick={() => handleDeleteTransaction(t)}
+                              className="p-1 px-2 text-[10px] bg-rose-50 hover:bg-rose-100 text-rose-600 hover:text-rose-700 font-extrabold rounded transition cursor-pointer"
+                            >
+                              🗑️ ลบ
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </td>
 
                   </tr>
@@ -922,6 +1030,162 @@ export default function FinancialAccountingPage() {
                     <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                   ) : (
                     <span>💾 บันทึกบัญชี</span>
+                  )}
+                </button>
+              </div>
+
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* --- EDIT TRANSACTION MODAL DIALOG --- */}
+      {showEditModal && editingTx && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out] overflow-y-auto">
+          <div className="bg-white rounded-3xl p-6 lg:p-7 max-w-md w-full border border-slate-100 shadow-2xl relative my-auto animate-[scaleUp_0.2s_ease-out] space-y-4">
+            
+            {/* Modal Header */}
+            <div>
+              <h3 className="text-md font-black text-slate-800 flex items-center gap-2">
+                <span>✏️ แก้ไขธุรกรรมการเงิน #{editingTx.id}</span>
+              </h3>
+              <p className="text-slate-400 text-[10px] font-bold">แก้ไขข้อมูลธุรกรรมการเงินเพื่อรักษาความถูกต้องทางสมุดบัญชีแยกประเภท</p>
+            </div>
+
+            {/* Close Cross */}
+            <button
+              onClick={() => {
+                setShowEditModal(false);
+                setEditingTx(null);
+              }}
+              className="absolute right-5 top-4 text-slate-400 hover:text-slate-600 hover:bg-slate-150 p-1.5 rounded-lg cursor-pointer transition"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+
+            <form onSubmit={handleEditTransactionSubmit} className="space-y-4 pt-2">
+              
+              {/* Field 1: Transaction Type Segmented Pills */}
+              <div className="space-y-1.5">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">ประเภทบัญชี</label>
+                <div className="flex bg-slate-100 p-1 rounded-xl w-full border border-slate-200/50">
+                  <button
+                    type="button"
+                    onClick={() => setEditTxType(TransactionType.INCOME)}
+                    className={`flex-1 py-2 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      editTxType === TransactionType.INCOME
+                        ? "bg-emerald-600 text-white shadow font-extrabold"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <span>📥</span>
+                    <span>บันทึกรายรับ (Income)</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setEditTxType(TransactionType.EXPENSE)}
+                    className={`flex-1 py-2 text-xs font-black rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer ${
+                      editTxType === TransactionType.EXPENSE
+                        ? "bg-rose-600 text-white shadow font-extrabold"
+                        : "text-slate-500 hover:text-slate-800"
+                    }`}
+                  >
+                    <span>📤</span>
+                    <span>บันทึกรายจ่าย (Expense)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Field 2: Amount (฿) */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">จำนวนเงิน (บาท)</label>
+                <div className="relative">
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0.01"
+                    required
+                    value={editTxAmount}
+                    onChange={(e) => setEditTxAmount(e.target.value)}
+                    placeholder="0.00"
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-sm font-black text-slate-800"
+                  />
+                  <span className="absolute right-4 top-3 text-xs font-bold text-slate-400">THB ฿</span>
+                </div>
+              </div>
+
+              {/* Field 3: Business Unit Selector */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">แผนกงาน/ธุรกิจที่เกี่ยวข้อง</label>
+                <select
+                  value={editTxUnitId}
+                  onChange={(e) => setEditTxUnitId(e.target.value)}
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-bold text-slate-700 cursor-pointer"
+                >
+                  <option value="general">⚙️ ส่วนกลางทั่วไป / โสหุ้ยระบบ (General Overhead)</option>
+                  {units.map((unit) => (
+                    <option key={unit.id} value={unit.id.toString()}>
+                      🏢 {unit.name} ({unit.type})
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Field 3.5: Expense Category (Only for EXPENSE) */}
+              {editTxType === TransactionType.EXPENSE && (
+                <div className="space-y-1 animate-[fadeIn_0.2s_ease-out]">
+                  <label className="block text-[10px] font-bold text-slate-400 uppercase">หมวดหมู่รายจ่าย</label>
+                  <select
+                    value={editTxCategory}
+                    onChange={(e) => setEditTxCategory(e.target.value)}
+                    className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-bold text-slate-700 cursor-pointer"
+                  >
+                    <option value="water_bill">💧 ค่าน้ำประปาหลวงส่วนกลาง</option>
+                    <option value="electric_bill">⚡ ค่าไฟฟ้าหลวงส่วนกลาง</option>
+                    <option value="spare_parts">🔧 อะไหล่สำหรับอู่รถ</option>
+                    <option value="maintenance">🛠️ ค่าซ่อมบำรุงอาคาร/ห้องพัก</option>
+                    <option value="salary">👷 ค่าแรง/ค่าจ้างพนักงาน</option>
+                    <option value="other">📦 ค่าใช้จ่ายอื่นๆ</option>
+                  </select>
+                </div>
+              )}
+
+              {/* Field 4: Description */}
+              <div className="space-y-1">
+                <label className="block text-[10px] font-bold text-slate-400 uppercase">รายละเอียดธุรกรรม</label>
+                <input
+                  type="text"
+                  required
+                  value={editTxDesc}
+                  onChange={(e) => setEditTxDesc(e.target.value)}
+                  placeholder="ตัวอย่างเช่น: ค่าเช่าห้อง 201, ซ่อมประตูตึกบี, จ่ายค่าน้ำ"
+                  className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none text-xs font-semibold text-slate-800"
+                />
+              </div>
+
+              {/* Submit Buttons */}
+              <div className="flex gap-2.5 pt-4 border-t border-slate-100 mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowEditModal(false);
+                    setEditingTx(null);
+                  }}
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-500 rounded-xl text-xs font-black transition cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSubmitting}
+                  className="flex-1 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-black transition shadow-md shadow-indigo-600/10 cursor-pointer flex items-center justify-center gap-1.5"
+                >
+                  {isSubmitting ? (
+                    <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>💾 อัปเดตรายการ</span>
                   )}
                 </button>
               </div>
