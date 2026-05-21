@@ -980,6 +980,96 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
 
+        if text.startswith("แจ้งซ่อม"):
+            content = text[len("แจ้งซ่อม"):].strip()
+            
+            # Smart Regex: extract optional dorm and room number
+            dorm_match = re.search(r'หอ\s*(26/20|26/577|73/17|26_20|26_577|73_17|26-20|26-577|73-17)', content, re.IGNORECASE)
+            room_match = re.search(r'ห้อง\s*([a-zA-Z0-9_\-/]+)', content, re.IGNORECASE)
+            
+            room = None
+            description = content
+            
+            if room_match:
+                room_candidate = room_match.group(1).strip()
+                dorm_candidate = None
+                if dorm_match:
+                    dorm_input = dorm_match.group(1).strip()
+                    dorm_candidate = dorm_input.replace("/", "_").replace("-", "_")
+                
+                if dorm_candidate:
+                    # Query matching BOTH dorm key and room number
+                    room = db.query(models.DormRoom).filter(
+                        models.DormRoom.dorm_key == dorm_candidate,
+                        models.DormRoom.number == room_candidate
+                    ).first()
+                else:
+                    # Query matching room number only
+                    room = db.query(models.DormRoom).filter(models.DormRoom.number == room_candidate).first()
+                
+                # Clean up description text (strip out matched หอ and ห้อง patterns)
+                desc_clean = content
+                if dorm_match:
+                    desc_clean = desc_clean.replace(dorm_match.group(0), "", 1)
+                if room_match:
+                    desc_clean = desc_clean.replace(room_match.group(0), "", 1)
+                
+                # Strip out residual "หอ" or "ห้อง" text if any
+                desc_clean = re.sub(r'^\s*หอ\s*ห้อง\s*', '', desc_clean)
+                desc_clean = re.sub(r'^[\s\-:]+', '', desc_clean).strip()
+                description = desc_clean
+            
+            # If no room matched from text, try auto-bound fallback using LINE User ID
+            if not room:
+                room = find_room_by_line_user_id(user_id, db)
+                
+            if not room:
+                reply_text = (
+                    "❌ ขออภัยค่ะ ระบบไม่พบข้อมูลเลขห้องของท่าน\n\n"
+                    "กรุณาแจ้งซ่อมตามรูปแบบนี้นะคะ:\n"
+                    "👉 แจ้งซ่อม หอ [เลขหอ] ห้อง [เลขห้อง] [ปัญหาที่พบ]\n"
+                    "ตัวอย่าง: แจ้งซ่อม หอ 26/20 ห้อง 302 ท่อน้ำทิ้งอุดตัน\n\n"
+                    "หรือติดต่อเจ้าหน้าที่เพื่อผูกไอดี LINE กับห้องพักของท่านค่ะ"
+                )
+            else:
+                ticket_desc = description or "ไม่ระบุรายละเอียดปัญหา"
+                ticket = models.MaintenanceTicket(
+                    room_number=room.number,
+                    description=ticket_desc,
+                    status="pending",
+                    line_user_id=user_id,
+                    created_at=datetime.utcnow()
+                )
+                db.add(ticket)
+                db.commit()
+                db.refresh(ticket)
+                
+                alert_message = (
+                    f"\n🚨 แจ้งซ่อมปัญหาหอพัก! 🚨\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🏢 ห้องพัก: ห้อง {room.number}\n"
+                    f"👤 ผู้แจ้ง: {room.tenant or 'ไม่ระบุชื่อ'}\n"
+                    f"🔧 รายละเอียด: {ticket_desc}\n"
+                    f"📅 วันเวลา: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🔗 จัดการใบสั่งงานผ่านหน้าเว็บ ERP"
+                )
+                await send_financial_alert_to_owner(alert_message)
+                
+                reply_text = (
+                    f"📝 บันทึกใบงานแจ้งซ่อมเรียบร้อยแล้วครับ!\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🎫 ใบรับงานเลขที่: #{ticket.id}\n"
+                    f"🏢 ห้องพัก: ห้อง {ticket.room_number}\n"
+                    f"🔧 อาการชำรุด: {ticket.description}\n"
+                    f"⚙️ สถานะ: รอดำเนินการ (Pending)\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"ระบบได้ส่งการแจ้งเตือนไปยังผู้ดูแลระบบและช่างเรียบร้อยแล้ว เราจะเร่งดำเนินการตรวจสอบให้โดยเร็วที่สุดครับ ขอบคุณครับ 🙏"
+                )
+                
+            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            continue
+
         # 👤 Auto-binding pattern: [Nickname] หอ [DormKey] ห้อง [RoomNumber]
         # e.g., "แก้ว หอ 26/20 ห้อง 302"
         binding_match = re.search(
@@ -1072,95 +1162,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             )
             continue
 
-        if text.startswith("แจ้งซ่อม"):
-            content = text[len("แจ้งซ่อม"):].strip()
-            
-            # Smart Regex: extract optional dorm and room number
-            dorm_match = re.search(r'หอ\s*(26/20|26/577|73/17|26_20|26_577|73_17|26-20|26-577|73-17)', content, re.IGNORECASE)
-            room_match = re.search(r'ห้อง\s*([a-zA-Z0-9_\-/]+)', content, re.IGNORECASE)
-            
-            room = None
-            description = content
-            
-            if room_match:
-                room_candidate = room_match.group(1).strip()
-                dorm_candidate = None
-                if dorm_match:
-                    dorm_input = dorm_match.group(1).strip()
-                    dorm_candidate = dorm_input.replace("/", "_").replace("-", "_")
-                
-                if dorm_candidate:
-                    # Query matching BOTH dorm key and room number
-                    room = db.query(models.DormRoom).filter(
-                        models.DormRoom.dorm_key == dorm_candidate,
-                        models.DormRoom.number == room_candidate
-                    ).first()
-                else:
-                    # Query matching room number only
-                    room = db.query(models.DormRoom).filter(models.DormRoom.number == room_candidate).first()
-                
-                # Clean up description text (strip out matched หอ and ห้อง patterns)
-                desc_clean = content
-                if dorm_match:
-                    desc_clean = desc_clean.replace(dorm_match.group(0), "", 1)
-                if room_match:
-                    desc_clean = desc_clean.replace(room_match.group(0), "", 1)
-                
-                # Strip out residual "หอ" or "ห้อง" text if any
-                desc_clean = re.sub(r'^\s*หอ\s*ห้อง\s*', '', desc_clean)
-                desc_clean = re.sub(r'^[\s\-:]+', '', desc_clean).strip()
-                description = desc_clean
-            
-            # If no room matched from text, try auto-bound fallback using LINE User ID
-            if not room:
-                room = find_room_by_line_user_id(user_id, db)
-                
-            if not room:
-                reply_text = (
-                    "❌ ขออภัยค่ะ ระบบไม่พบข้อมูลเลขห้องของท่าน\n\n"
-                    "กรุณาแจ้งซ่อมตามรูปแบบนี้นะคะ:\n"
-                    "👉 แจ้งซ่อม หอ [เลขหอ] ห้อง [เลขห้อง] [ปัญหาที่พบ]\n"
-                    "ตัวอย่าง: แจ้งซ่อม หอ 26/20 ห้อง 302 ท่อน้ำทิ้งอุดตัน\n\n"
-                    "หรือติดต่อเจ้าหน้าที่เพื่อผูกไอดี LINE กับห้องพักของท่านค่ะ"
-                )
-            else:
-                ticket_desc = description or "ไม่ระบุรายละเอียดปัญหา"
-                ticket = models.MaintenanceTicket(
-                    room_number=room.number,
-                    description=ticket_desc,
-                    status="pending",
-                    line_user_id=user_id,
-                    created_at=datetime.utcnow()
-                )
-                db.add(ticket)
-                db.commit()
-                db.refresh(ticket)
-                
-                alert_message = (
-                    f"\n🚨 แจ้งซ่อมปัญหาหอพัก! 🚨\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🏢 ห้องพัก: ห้อง {room.number}\n"
-                    f"👤 ผู้แจ้ง: {room.tenant or 'ไม่ระบุชื่อ'}\n"
-                    f"🔧 รายละเอียด: {ticket_desc}\n"
-                    f"📅 วันเวลา: {datetime.now().strftime('%d/%m/%Y %H:%M')}\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🔗 จัดการใบสั่งงานผ่านหน้าเว็บ ERP"
-                )
-                await send_financial_alert_to_owner(alert_message)
-                
-                reply_text = (
-                    f"📝 บันทึกใบงานแจ้งซ่อมเรียบร้อยแล้วครับ!\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🎫 ใบรับงานเลขที่: #{ticket.id}\n"
-                    f"🏢 ห้องพัก: ห้อง {ticket.room_number}\n"
-                    f"🔧 อาการชำรุด: {ticket.description}\n"
-                    f"⚙️ สถานะ: รอดำเนินการ (Pending)\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"ระบบได้ส่งการแจ้งเตือนไปยังผู้ดูแลระบบและช่างเรียบร้อยแล้ว เราจะเร่งดำเนินการตรวจสอบให้โดยเร็วที่สุดครับ ขอบคุณครับ 🙏"
-                )
-                
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
-            continue
+
 
         if text == "เช็คยอด":
             customer = db.query(models.Customer).filter(models.Customer.line_user_id == user_id).first()
