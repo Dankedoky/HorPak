@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, Fragment } from "react";
 import { authFetch } from "@/lib/api";
 
 // Interfaces matching API response schemas.py
@@ -591,7 +591,7 @@ export default function UtilitiesSpreadsheetPage() {
                       });
 
                       return (
-                        <g key={floorGroup.floor}>
+                        <Fragment key={floorGroup.floor}>
                           {/* Floor Header separator row */}
                           <tr className="bg-slate-100/70 text-slate-700 font-extrabold text-[11px]">
                             <td colSpan={17} className="py-2.5 px-4 tracking-wide flex items-center gap-1.5">
@@ -744,39 +744,39 @@ export default function UtilitiesSpreadsheetPage() {
                             </td>
                             <td colSpan={2}></td>
                           </tr>
-                        </g>
+                        </Fragment>
                       );
                     })}
 
                     {/* GRAND TOTALS ROW */}
                     <tr className="bg-slate-900 text-white font-black text-[12px] uppercase tracking-wider">
-                      <td colSpan={3} className="py-4 px-4 text-right tracking-widest text-slate-300">
+                      <td colSpan={3} className="py-4 px-4 text-right tracking-widest text-slate-300 whitespace-nowrap">
                         ⭐ รวมสะสมเฉพาะ {DORM_NAMES[selectedDorm]} (GRAND TOTALS):
                       </td>
-                      <td className="py-4 px-3 text-right text-emerald-300 bg-slate-800/80">
+                      <td className="py-4 px-3 text-right text-emerald-300 bg-slate-800/80 whitespace-nowrap">
                         {formatMoney(grandTotals.rateSum)} ฿
                       </td>
                       <td colSpan={2} className="bg-slate-900"></td>
-                      <td className="py-4 px-3 text-right text-amber-300 bg-slate-800/60">
+                      <td className="py-4 px-3 text-right text-amber-300 bg-slate-800/60 whitespace-nowrap">
                         {grandTotals.elecUnitsSum.toLocaleString(undefined, { maximumFractionDigits: 1 })}
                       </td>
-                      <td className="py-4 px-3 text-right text-amber-300 bg-slate-800/80">
+                      <td className="py-4 px-3 text-right text-amber-300 bg-slate-800/80 whitespace-nowrap">
                         {formatMoney(grandTotals.elecCostSum)} ฿
                       </td>
                       <td colSpan={2} className="bg-slate-900"></td>
-                      <td className="py-4 px-3 text-right text-sky-300 bg-slate-800/60">
+                      <td className="py-4 px-3 text-right text-sky-300 bg-slate-800/60 whitespace-nowrap">
                         {grandTotals.waterUnitsSum.toLocaleString(undefined, { maximumFractionDigits: 1 })}
                       </td>
-                      <td className="py-4 px-3 text-right text-sky-300 bg-slate-800/80">
+                      <td className="py-4 px-3 text-right text-sky-300 bg-slate-800/80 whitespace-nowrap">
                         {formatMoney(grandTotals.waterCostSum)} ฿
                       </td>
-                      <td className="py-4 px-3 text-right text-purple-300 bg-slate-800/80">
+                      <td className="py-4 px-3 text-right text-purple-300 bg-slate-800/80 whitespace-nowrap">
                         {formatMoney(grandTotals.cleaningSum)} ฿
                       </td>
-                      <td className="py-4 px-3 text-right text-purple-300 bg-slate-800/80">
+                      <td className="py-4 px-3 text-right text-purple-300 bg-slate-800/80 whitespace-nowrap">
                         {formatMoney(grandTotals.otherSum)} ฿
                       </td>
-                      <td className="py-4 px-3 text-right text-rose-300 bg-slate-800 border-l border-slate-700 text-[14px]">
+                      <td className="py-4 px-3 text-right text-rose-300 bg-slate-800 border-l border-slate-700 text-[14px] whitespace-nowrap">
                         {formatMoney(grandTotals.totalSum)} ฿
                       </td>
                       <td colSpan={2} className="bg-slate-900"></td>
