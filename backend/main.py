@@ -1075,39 +1075,130 @@ def export_transactions_excel(db: Session = Depends(get_db)):
     )
 
 @app.get("/transactions/monthly-summary")
-def get_monthly_summary(db: Session = Depends(get_db)):
-    six_months_ago = datetime.now() - timedelta(days=180)
+def get_monthly_summary(
+    start_month: Optional[str] = None,
+    end_month: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    current_date = datetime.now()
     
+    # Determine start and end datetime based on filters
+    if not start_month and not end_month:
+        # Default to 6 months ago to current date
+        start_dt = current_date - timedelta(days=180)
+        end_dt = current_date
+    else:
+        if start_month:
+            try:
+                start_y, start_m = map(int, start_month.split("-"))
+                start_dt = datetime(start_y, start_m, 1)
+            except Exception:
+                start_dt = current_date - timedelta(days=180)
+        else:
+            # Fallback to 2 years ago if only end_month is specified
+            start_dt = current_date - timedelta(days=730)
+            
+        if end_month:
+            try:
+                end_y, end_m = map(int, end_month.split("-"))
+                if end_m == 12:
+                    end_dt = datetime(end_y + 1, 1, 1) - timedelta(seconds=1)
+                else:
+                    end_dt = datetime(end_y, end_m + 1, 1) - timedelta(seconds=1)
+            except Exception:
+                end_dt = current_date
+        else:
+            end_dt = current_date
+
     transactions = db.query(models.Transaction).filter(
-        models.Transaction.created_at >= six_months_ago
+        models.Transaction.created_at >= start_dt,
+        models.Transaction.created_at <= end_dt
     ).all()
     
     monthly_data = {}
+    
+    # Fill in all months in the range with 0.0 to avoid gaps on charts
+    curr_y, curr_m = start_dt.year, start_dt.month
+    end_y, end_m = end_dt.year, end_dt.month
+    
+    # Let's cap the maximum number of months to 60 (5 years) to maintain optimal performance
+    max_months = 60
+    count = 0
+    while ((curr_y < end_y) or (curr_y == end_y and curr_m <= end_m)) and count < max_months:
+        key = f"{curr_y:04d}-{curr_m:02d}"
+        monthly_data[key] = {"month": key, "income": 0.0, "expense": 0.0}
+        curr_m += 1
+        if curr_m > 12:
+            curr_m = 1
+            curr_y += 1
+        count += 1
+    
     for tx in transactions:
         if tx.created_at:
             key = tx.created_at.strftime("%Y-%m")
-            if key not in monthly_data:
-                monthly_data[key] = {"month": key, "income": 0.0, "expense": 0.0}
-            if tx.type == models.TransactionType.INCOME:
-                monthly_data[key]["income"] += float(tx.amount)
-            else:
-                monthly_data[key]["expense"] += float(tx.amount)
+            if key in monthly_data:
+                if tx.type == models.TransactionType.INCOME:
+                    monthly_data[key]["income"] += float(tx.amount)
+                else:
+                    monthly_data[key]["expense"] += float(tx.amount)
     
     result = sorted(monthly_data.values(), key=lambda x: x["month"])
-    return result[-6:] if len(result) > 6 else result
+    return result
 
 @app.get("/transactions/utility-analytics/", response_model=schemas.UtilityAnalyticsResponse)
-def get_utility_margin_analytics(db: Session = Depends(get_db)):
-    # Generate last 6 months list
+def get_utility_margin_analytics(
+    start_month: Optional[str] = None,
+    end_month: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
     current_date = datetime.now()
-    months_list = []
-    for i in range(5, -1, -1):
-        m = current_date.month - i
-        y = current_date.year
-        while m <= 0:
-            m += 12
-            y -= 1
-        months_list.append(f"{y:04d}-{m:02d}")
+    
+    # Generate months list based on filters
+    if not start_month and not end_month:
+        # Default to last 6 months list
+        months_list = []
+        for i in range(5, -1, -1):
+            m = current_date.month - i
+            y = current_date.year
+            while m <= 0:
+                m += 12
+                y -= 1
+            months_list.append(f"{y:04d}-{m:02d}")
+    else:
+        if start_month:
+            try:
+                start_y, start_m = map(int, start_month.split("-"))
+            except Exception:
+                start_y, start_m = current_date.year, current_date.month - 5
+                while start_m <= 0:
+                    start_m += 12
+                    start_y -= 1
+        else:
+            # Default to 2 years ago if only end is given
+            start_y, start_m = current_date.year - 2, current_date.month
+            while start_m <= 0:
+                start_m += 12
+                start_y -= 1
+                
+        if end_month:
+            try:
+                end_y, end_m = map(int, end_month.split("-"))
+            except Exception:
+                end_y, end_m = current_date.year, current_date.month
+        else:
+            end_y, end_m = current_date.year, current_date.month
+            
+        months_list = []
+        curr_y, curr_m = start_y, start_m
+        max_months = 60
+        count = 0
+        while ((curr_y < end_y) or (curr_y == end_y and curr_m <= end_m)) and count < max_months:
+            months_list.append(f"{curr_y:04d}-{curr_m:02d}")
+            curr_m += 1
+            if curr_m > 12:
+                curr_m = 1
+                curr_y += 1
+            count += 1
         
     # Initialize monthly tracking dictionaries
     water_data = {m: {"month": m, "collected": 0.0, "gov_paid": 0.0, "margin": 0.0, "margin_pct": 0.0} for m in months_list}
@@ -1132,14 +1223,25 @@ def get_utility_margin_analytics(db: Session = Depends(get_db)):
         elec_data[hp.month]["collected"] += float(hp.electric_bill or 0.0)
         
     # 3. Fetch and aggregate Transaction expenses for water and electricity bills
-    # Note: We filter by Transaction created_at dating within the range of months
-    # We pull transactions from the last 200 days to cover our 6 months range
-    six_months_ago = current_date - timedelta(days=200)
-    transactions = db.query(models.Transaction).filter(
-        models.Transaction.type == models.TransactionType.EXPENSE,
-        models.Transaction.expense_category.in_([models.ExpenseCategory.WATER_BILL, models.ExpenseCategory.ELECTRIC_BILL]),
-        models.Transaction.created_at >= six_months_ago
-    ).all()
+    if months_list:
+        # Determine the start and end datetime covering the months range exactly
+        start_y, start_m = map(int, months_list[0].split("-"))
+        tx_start = datetime(start_y, start_m, 1)
+        
+        end_y, end_m = map(int, months_list[-1].split("-"))
+        if end_m == 12:
+            tx_end = datetime(end_y + 1, 1, 1) - timedelta(seconds=1)
+        else:
+            tx_end = datetime(end_y, end_m + 1, 1) - timedelta(seconds=1)
+            
+        transactions = db.query(models.Transaction).filter(
+            models.Transaction.type == models.TransactionType.EXPENSE,
+            models.Transaction.expense_category.in_([models.ExpenseCategory.WATER_BILL, models.ExpenseCategory.ELECTRIC_BILL]),
+            models.Transaction.created_at >= tx_start,
+            models.Transaction.created_at <= tx_end
+        ).all()
+    else:
+        transactions = []
     
     for tx in transactions:
         if tx.created_at:

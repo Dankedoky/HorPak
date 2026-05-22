@@ -1,5 +1,18 @@
 # Activity Log
 
+## [2026-05-23] Dynamic Historical Financial Reports & Real Datetime Connection (Approve & Execution Complete)
+- **High-Integrity Clean Code Optimization:**
+  - *Reports Page Syntax Fix:* แก้ไขข้อผิดพลาดเชิงไวยากรณ์ (Syntax Error) บริเวณช่วงกลางของหน้าจอรายงาน [reports/page.tsx](file:///d:/HorPak/frontend/src/app/reports/page.tsx) ที่เกิดจากปัญหาการทับถมของโค้ดค้างคาจากการทดลองสร้าง component `formatMonthThai` พร้อมลบล้างบล็อกโค้ดตัวแปร/ฟังก์ชันผู้ช่วยตกค้าง (Duplicate functions) ออกทั้งหมด ส่งผลให้โครงสร้างไฟล์มีความคลีน 100% และผ่านการรวบรวม (Compile Status) อย่างสมบูรณ์แบบ
+  - *Front-End Compilation Success:* ทำการรันตรวจทานความถูกต้องผ่านคำสั่ง `npx tsc --noEmit` ได้รับการยืนยันผลสำเร็จผ่านฉลุย ปราศจาก TypeScript compiler warnings หรือ Errors ใดๆ
+- **Zero Mock-Data Guarantee (ระบบจริง 100%):**
+  - *Ledger DB Data Extraction:* ยืนยันความสอดคล้องของ API สรุปงบกระแสเงินสดรายเดือนและการวิเคราะห์สาธารณูปโภคค่าน้ำ-ไฟฟ้า ได้รับข้อมูลจากตารางธุรกรรมแยกประเภททั่วไป (General Ledger) และประวัติการบันทึกชำระเงินจริง 100% ปราศจาก mock-up data ใดๆ เพื่อการใช้งานจริงอย่างเป็นทางการ
+  - *Supabase PostgreSQL Stability:* ทดสอบเชื่อมต่อและดึงข้อมูลจากตารางจริงบนระบบคลาวด์ Supabase ของโครงการสำเร็จลื่นไหล ผ่านสคริปต์ตรวจสอบสถานะ `scratch_check.py` พบรายการห้องและข้อมูลลูกค้าจริงในระบบ
+- **Real-Time System Datetime Integration:**
+  - *Safe Temporal Tracking:* ค้นหาและตรวจสอบการใช้ข้อมูลเวลาของระบบ พบว่าสถาปัตยกรรมทางบัญชีใช้ `default=datetime.utcnow` และเรียกใช้ฟังก์ชัน `datetime.utcnow()` สดในการระบุเวลาในการรับเงิน/ทำรายการทุกครั้ง ทำให้วันและเวลาของบัญชีแยกประเภทเดินไปข้างหน้าตามธรรมชาติของเครื่องอย่างโปร่งใส ไร้รอยต่อ สะดวกต่อการเรียกสืบค้นข้อมูลย้อนหลัง 1-2 ปีเพื่อความโปร่งใสทางภาษีและรายรับ-รายจ่ายของครอบครัว
+- **Verification:**
+  - *Next.js TypeScript Compiler Check:* `npx tsc --noEmit` สำเร็จ 100% ด้วย exit code 0
+  - *Obsidian Vault State Sync:* บันทึกข้อมูลและประวัติการทำงานลงใน Obsidian Vault ไฟล์ [MEMORY.md](file:///d:/HorPak/MEMORY.md) และ [log.md](file:///d:/HorPak/log.md) สำเร็จเรียบร้อย
+
 ## [2026-05-22] 100% Ledger Integrity & Accounting Reconciliation Logic (Approve & Execution Complete)
 - **100% Automatic Ledger Reconciliation:**
   - *Dormitory Room Billing (`update_room`):* Upgraded the Transaction Ledger Management block to dynamically query, match, and sync transaction amounts (`Transaction.amount`) and descriptions to the latest room rates, water costs, electricity costs, cleaning/other fees, and fines whenever a room's status is `"paid"`. If the status is toggled away from `"paid"`, or if `total_bill` falls to 0, it automatically reverses (deletes) the ledger entry.

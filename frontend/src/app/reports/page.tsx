@@ -50,11 +50,81 @@ export default function ReportsPage() {
   const [utilityData, setUtilityData] = useState<UtilityAnalyticsData>({ water: [], electricity: [] });
   const [isLoadingUtility, setIsLoadingUtility] = useState(true);
 
+  // Dynamic Date Range States (Default to last 6 months)
+  const defaultDates = useMemo(() => {
+    const current = new Date();
+    const start = new Date(current.getFullYear(), current.getMonth() - 5, 1);
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    return {
+      start: `${start.getFullYear()}-${pad(start.getMonth() + 1)}`,
+      end: `${current.getFullYear()}-${pad(current.getMonth() + 1)}`
+    };
+  }, []);
+
+  const [startMonth, setStartMonth] = useState(defaultDates.start);
+  const [endMonth, setEndMonth] = useState(defaultDates.end);
+  const [preset, setPreset] = useState<"6m" | "12m" | "thisYear" | "lastYear" | "allTime" | "custom">("6m");
+
+  // Quick Preset Selector Action
+  const applyPreset = (p: "6m" | "12m" | "thisYear" | "lastYear" | "allTime") => {
+    setPreset(p);
+    const current = new Date();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    const endStr = `${current.getFullYear()}-${pad(current.getMonth() + 1)}`;
+    
+    if (p === "6m") {
+      const start = new Date(current.getFullYear(), current.getMonth() - 5, 1);
+      setStartMonth(`${start.getFullYear()}-${pad(start.getMonth() + 1)}`);
+      setEndMonth(endStr);
+    } else if (p === "12m") {
+      const start = new Date(current.getFullYear(), current.getMonth() - 11, 1);
+      setStartMonth(`${start.getFullYear()}-${pad(start.getMonth() + 1)}`);
+      setEndMonth(endStr);
+    } else if (p === "thisYear") {
+      setStartMonth(`${current.getFullYear()}-01`);
+      setEndMonth(`${current.getFullYear()}-12`);
+    } else if (p === "lastYear") {
+      const lastYear = current.getFullYear() - 1;
+      setStartMonth(`${lastYear}-01`);
+      setEndMonth(`${lastYear}-12`);
+    } else if (p === "allTime") {
+      // 2 Years ago (All-Time default starting point)
+      const start = new Date(current.getFullYear() - 2, 0, 1);
+      setStartMonth(`${start.getFullYear()}-01`);
+      setEndMonth(endStr);
+    }
+  };
+
+  // Generate Thai selectable months list (last 3 years to current)
+  const selectableMonths = useMemo(() => {
+    const current = new Date();
+    const list: { val: string; label: string }[] = [];
+    const thMonths = [
+      "ม.ค.", "ก.พ.", "มี.ค.", "เม.ย.", "พ.ค.", "มิ.ย.",
+      "ก.ค.", "ส.ค.", "ก.ย.", "ต.ค.", "พ.ย.", "ธ.ค."
+    ];
+    const startYear = current.getFullYear() - 3;
+    const endYear = current.getFullYear();
+    const pad = (n: number) => n.toString().padStart(2, '0');
+    
+    for (let y = endYear; y >= startYear; y--) {
+      for (let m = 12; m >= 1; m--) {
+        const val = `${y}-${pad(m)}`;
+        const thYear = (y + 543).toString();
+        const label = `${thMonths[m-1]} ${thYear}`;
+        list.push({ val, label });
+      }
+    }
+    return list;
+  }, []);
+
+  // Sync API Fetching when Date Filters shift
   useEffect(() => {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    setIsLoadingUtility(true);
     
     // Fetch overall monthly financial summary
-    authFetch(`${API_BASE}/transactions/monthly-summary`)
+    authFetch(`${API_BASE}/transactions/monthly-summary?start_month=${startMonth}&end_month=${endMonth}`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -64,7 +134,7 @@ export default function ReportsPage() {
       .catch((err) => console.error("Error loading monthly summary on reports:", err));
 
     // Fetch water & electricity margin analysis
-    authFetch(`${API_BASE}/transactions/utility-analytics/`)
+    authFetch(`${API_BASE}/transactions/utility-analytics/?start_month=${startMonth}&end_month=${endMonth}`)
       .then((r) => r.json())
       .then((data) => {
         if (data && data.water && data.electricity) {
@@ -76,9 +146,9 @@ export default function ReportsPage() {
         console.error("Error loading utility analytics:", err);
         setIsLoadingUtility(false);
       });
-  }, []);
+  }, [startMonth, endMonth]);
 
-  // Compute overall totals for the business
+  // Compute live property totals for the business
   const totals = useMemo(() => {
     const grossRevenue = dorm.grandExpectedRevenue + garage.totalRevenue + house.totalExpectedRevenue;
     const collected = dorm.grandPaidRevenue + garage.paidRevenue + house.paidRevenue;
@@ -92,9 +162,14 @@ export default function ReportsPage() {
     return { grossRevenue, collected, pending, operating };
   }, [dorm, garage, house, tx.transactions]);
 
-  const collectionRate = totals.grossRevenue > 0 
-    ? Math.round((totals.collected / totals.grossRevenue) * 100) 
-    : 0;
+  // Compute historical ledger aggregates within the selected time window
+  const historicalLedger = useMemo(() => {
+    const income = monthlyData.reduce((s, d) => s + d.income, 0);
+    const expense = monthlyData.reduce((s, d) => s + d.expense, 0);
+    const margin = income - expense;
+    const marginPct = income > 0 ? (margin / income) * 100 : 0;
+    return { income, expense, margin, marginPct };
+  }, [monthlyData]);
 
   // Utility Aggregates for dynamic summary cards
   const utilitySummary = useMemo(() => {
@@ -120,15 +195,32 @@ export default function ReportsPage() {
     };
   }, [utilityData]);
 
-  // Max value calculator for SVG double bar charts
+  // Max value calculator and dynamic width calculator for SVG charts
+  const maxMonthlyVal = useMemo(() => {
+    const vals = monthlyData.flatMap(d => [d.income, d.expense]);
+    return Math.max(...vals, 1000);
+  }, [monthlyData]);
+
+  const overviewChartWidth = useMemo(() => {
+    return Math.max(540, 75 + monthlyData.length * 72 + 30);
+  }, [monthlyData]);
+
   const maxWaterVal = useMemo(() => {
     const vals = utilityData.water.flatMap(d => [d.collected, d.gov_paid]);
     return Math.max(...vals, 1000);
   }, [utilityData.water]);
 
+  const waterChartWidth = useMemo(() => {
+    return Math.max(540, 75 + utilityData.water.length * 72 + 30);
+  }, [utilityData.water]);
+
   const maxElecVal = useMemo(() => {
     const vals = utilityData.electricity.flatMap(d => [d.collected, d.gov_paid]);
     return Math.max(...vals, 1000);
+  }, [utilityData.electricity]);
+
+  const elecChartWidth = useMemo(() => {
+    return Math.max(540, 75 + utilityData.electricity.length * 72 + 30);
   }, [utilityData.electricity]);
 
   return (
@@ -151,6 +243,85 @@ export default function ReportsPage() {
           <Link href="/settings" className="px-4 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-black transition">
             ตั้งค่าระบบ
           </Link>
+        </div>
+      </div>
+
+      {/* Date Range Selector Panel (Historical Filter Board) */}
+      <div className="bg-white/80 backdrop-blur-md rounded-3xl p-5 border border-slate-100 shadow-[0_4px_20px_rgba(0,0,0,0.015)] space-y-4">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex items-center gap-2.5">
+            <span className="text-xl">📅</span>
+            <div>
+              <h2 className="text-sm font-black text-slate-800">ช่วงเวลาวิเคราะห์งบย้อนหลัง (Historical Period)</h2>
+              <p className="text-[10px] text-slate-400">เลือกช่วงเวลารายงานหรือกำหนดช่วงเดือนเริ่มต้น-สิ้นสุดย้อนหลัง 1 - 2 ปีหรือมากกว่าได้โดยตรงจาก Ledger</p>
+            </div>
+          </div>
+          {/* Quick Presets */}
+          <div className="flex flex-wrap gap-1.5">
+            {[
+              { id: "6m", label: "6 เดือนล่าสุด", action: () => applyPreset("6m") },
+              { id: "12m", label: "12 เดือนล่าสุด", action: () => applyPreset("12m") },
+              { id: "thisYear", label: "ปีนี้", action: () => applyPreset("thisYear") },
+              { id: "lastYear", label: "ปีที่แล้ว", action: () => applyPreset("lastYear") },
+              { id: "allTime", label: "2 ปีล่าสุด (All-Time)", action: () => applyPreset("allTime") },
+            ].map((pOpt) => (
+              <button
+                key={pOpt.id}
+                onClick={pOpt.action}
+                className={`px-3 py-1.5 rounded-xl text-[10px] font-black tracking-wide border transition-all ${
+                  preset === pOpt.id
+                    ? "bg-blue-600 text-white border-blue-600 shadow-md shadow-blue-600/10"
+                    : "bg-slate-50 hover:bg-slate-100 text-slate-600 border-slate-200"
+                }`}
+              >
+                {pOpt.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4 border-t border-slate-100 pt-4">
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">ตั้งแต่เดือน (Start Month)</label>
+            <select
+              value={startMonth}
+              onChange={(e) => {
+                setStartMonth(e.target.value);
+                setPreset("custom");
+              }}
+              className="w-full text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl px-3.5 py-2.5 outline-none transition focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600"
+            >
+              {selectableMonths.map((m) => (
+                <option key={`start-${m.val}`} value={m.val}>
+                  {m.label} ({m.val})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <label className="text-[10px] font-black text-slate-400 uppercase tracking-wider">ถึงเดือน (End Month)</label>
+            <select
+              value={endMonth}
+              onChange={(e) => {
+                setEndMonth(e.target.value);
+                setPreset("custom");
+              }}
+              className="w-full text-xs font-bold text-slate-700 bg-slate-50 hover:bg-slate-100/80 border border-slate-200 rounded-xl px-3.5 py-2.5 outline-none transition focus:ring-2 focus:ring-blue-600/10 focus:border-blue-600"
+            >
+              {selectableMonths.map((m) => (
+                <option key={`end-${m.val}`} value={m.val}>
+                  {m.label} ({m.val})
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="flex flex-col justify-end">
+            <div className="p-3.5 bg-indigo-50/40 rounded-2xl border border-indigo-100/50 text-[10px] text-indigo-950/80 leading-relaxed font-semibold">
+              ✨ **ใช้งานข้อมูลจริง:** แดชบอร์ดนี้ซิงก์ตรงกับ General Ledger และตารางค่าน้ำไฟในระบบโดยตรง ปราศจากการใช้ mock-up เพื่อให้คุณวิเคราะห์ผลลัพธ์ได้อย่างแม่นยำสูงสุด
+            </div>
+          </div>
         </div>
       </div>
 
@@ -189,6 +360,112 @@ export default function ReportsPage() {
             <StatCard label="ค่าใช้จ่ายสะสมในระบบ (Operating Expenses)" value={totals.operating} tone="text-rose-500" />
           </div>
 
+          {/* Historical Cashflow Summary Section */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
+            <div className="bg-gradient-to-br from-indigo-50/50 to-blue-50/50 rounded-3xl p-5 border border-indigo-100 shadow-[0_2px_12px_rgba(0,0,0,0.01)] transition hover:shadow-md col-span-1 flex flex-col justify-between">
+              <div>
+                <span className="text-[9px] font-black text-indigo-600 uppercase tracking-widest bg-indigo-100 border border-indigo-200 px-2 py-0.5 rounded-full inline-block">
+                  Summary ({formatMonthThai(startMonth)} - {formatMonthThai(endMonth)})
+                </span>
+                <h3 className="text-sm font-black text-slate-800 tracking-tight mt-2.5">สรุปงบตาม Ledger ในช่วงที่เลือก</h3>
+                <p className="text-[10px] text-slate-400 mt-1 leading-relaxed">สรุปเงินรายรับและรายจ่ายทั้งหมดที่บันทึกจริงลงในฐานข้อมูล</p>
+              </div>
+              <div className="space-y-2 pt-4 border-t border-slate-100 mt-4">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-[10px] font-bold text-slate-400">รายรับสะสม:</span>
+                  <span className="text-xs font-black text-slate-700">{formatMoney(historicalLedger.income)} ฿</span>
+                </div>
+                <div className="flex justify-between items-baseline">
+                  <span className="text-[10px] font-bold text-slate-400">รายจ่ายสะสม:</span>
+                  <span className="text-xs font-black text-rose-600">{formatMoney(historicalLedger.expense)} ฿</span>
+                </div>
+                <div className="flex justify-between items-baseline pt-2 border-t border-dashed border-slate-200">
+                  <span className="text-[10px] font-extrabold text-slate-600">กระแสเงินสดสุทธิ:</span>
+                  <span className={`text-sm font-black ${historicalLedger.margin >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                    {historicalLedger.margin >= 0 ? "+" : ""}{formatMoney(historicalLedger.margin)} ฿
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Dynamic Monthly Cashflow SVG Chart */}
+            <div className="lg:col-span-3">
+              <Panel title={`📈 แผนภูมิกระแสเงินสดบัญชี รายรับ ปะทะ รายจ่าย (${formatMonthThai(startMonth)} - ${formatMonthThai(endMonth)})`} subtitle="เปรียบเทียบความสัมพันธ์ของรายรับจริง (เขียว) ปะทะรายจ่าย (แดง) สะสมตาม Ledger บัญชี">
+                <div className="overflow-x-auto">
+                  <svg viewBox={`0 0 ${overviewChartWidth} 240`} className="h-[240px]" style={{ minWidth: overviewChartWidth }}>
+                    {/* Grid Lines */}
+                    {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
+                      <g key={i}>
+                        <line x1="60" y1={190 - pct * 150} x2={overviewChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" />
+                        <text x="50" y={194 - pct * 150} textAnchor="end" fontSize="9" fill="#94a3b8" fontWeight="bold">
+                          {(maxMonthlyVal * pct).toLocaleString(undefined, { maximumFractionDigits: 0 })}
+                        </text>
+                      </g>
+                    ))}
+                    
+                    {/* Double Bars for cashflow */}
+                    {monthlyData.map((d, i) => {
+                      const x = 75 + i * 72;
+                      const incH = (d.income / maxMonthlyVal) * 150;
+                      const expH = (d.expense / maxMonthlyVal) * 150;
+                      const net = d.income - d.expense;
+
+                      return (
+                        <g key={d.month} className="group">
+                          {/* Income Bar */}
+                          <rect x={x} y={190 - incH} width="22" height={incH} rx="3" fill="url(#incGrad)" opacity="0.9" className="transition-all duration-300 hover:opacity-100">
+                            <title>รายรับสะสม: {d.income.toLocaleString()} ฿</title>
+                          </rect>
+                          <text x={x + 11} y={183 - incH} textAnchor="middle" fontSize="8" fill="#065f46" fontWeight="bold" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            {d.income > 0 ? `${(d.income/1000).toFixed(1)}K` : ''}
+                          </text>
+
+                          {/* Expense Bar */}
+                          <rect x={x + 26} y={190 - expH} width="22" height={expH} rx="3" fill="url(#expGrad)" opacity="0.9" className="transition-all duration-300 hover:opacity-100">
+                            <title>รายจ่ายสะสม: {d.expense.toLocaleString()} ฿</title>
+                          </rect>
+                          <text x={x + 37} y={183 - expH} textAnchor="middle" fontSize="8" fill="#991b1b" fontWeight="bold" className="opacity-0 group-hover:opacity-100 transition-opacity">
+                            {d.expense > 0 ? `${(d.expense/1000).toFixed(1)}K` : ''}
+                          </text>
+
+                          {/* X-Axis Month Tag */}
+                          <text x={x + 24} y={210} textAnchor="middle" fontSize="9" fill="#64748b" fontWeight="bold">
+                            {formatMonthThai(d.month)}
+                          </text>
+                          
+                          {/* Net Margin badge at bar bottom */}
+                          <text x={x + 24} y={224} textAnchor="middle" fontSize="8" fill={net >= 0 ? "#059669" : "#e11d48"} fontWeight="black">
+                            {net >= 0 ? `+${Math.round(net).toLocaleString()}` : Math.round(net).toLocaleString()}
+                          </text>
+                        </g>
+                      );
+                    })}
+
+                    {/* Definitions */}
+                    <defs>
+                      <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#10b981" />
+                        <stop offset="100%" stopColor="#047857" />
+                      </linearGradient>
+                      <linearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f43f5e" />
+                        <stop offset="100%" stopColor="#be123c" />
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                </div>
+                <div className="flex justify-center gap-6 mt-2 text-xs font-bold text-slate-500">
+                  <span className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded bg-emerald-500 inline-block"></span> รายรับสะสม (Revenue)
+                  </span>
+                  <span className="flex items-center gap-2">
+                    <span className="w-3 h-3 rounded bg-rose-500 inline-block"></span> รายจ่ายสะสม (Expenses)
+                  </span>
+                </div>
+              </Panel>
+            </div>
+          </div>
+
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             {/* Left Columns: Property Assets */}
             <div className="lg:col-span-2 space-y-6">
@@ -219,7 +496,7 @@ export default function ReportsPage() {
                   <IntegrationStatusRow label="Database Engine Sync" status="Synced" details="SQLite พัฒนาในเครื่อง ⇄ PostgreSQL Supabase" isOk={true} />
                   <IntegrationStatusRow label="UptimeRobot Scheduler" status="Active" details="สแกนรอบบิลแจ้งเตือนวันที่ 25 ถึง 5 ของเดือน" isOk={true} />
                 </div>
-                <div className="mt-6 p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 text-xs text-indigo-950/80 leading-relaxed">
+                <div className="mt-6 p-4 rounded-2xl bg-indigo-50/50 border border-indigo-100 text-xs text-indigo-950/80 leading-relaxed font-semibold">
                   💡 **นโยบายค่าปรับล่าช้า:** ระบบตั้งเวลาสแกนอัตโนมัติแจ้งเตือนบิลตั้งแต่วันที่ 25 จนถึงวันที่ 5 ของเดือนถัดไป หลังวันที่ 5 เป็นต้นไปจะคำนวณเบี้ยปรับค้างชำระอัตโนมัติ 100 บาท/วัน
                 </div>
               </Panel>
@@ -247,7 +524,7 @@ export default function ReportsPage() {
                       <span className="text-xl">💧</span>
                       <div>
                         <h2 className="text-sm font-bold text-slate-800">ระบบค่าน้ำประปา (Water Utility)</h2>
-                        <p className="text-[10px] text-slate-400">เปรียบเทียบยอดรวมค่าน้ำย้อนหลัง 6 เดือน</p>
+                        <p className="text-[10px] text-slate-400">เปรียบเทียบยอดรวมค่าน้ำย้อนหลังตามจริง</p>
                       </div>
                     </div>
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-black tracking-wide ${
@@ -292,7 +569,7 @@ export default function ReportsPage() {
                       <span className="text-xl">⚡</span>
                       <div>
                         <h2 className="text-sm font-bold text-slate-800">ระบบไฟฟ้าหลวง (Electricity Utility)</h2>
-                        <p className="text-[10px] text-slate-400">เปรียบเทียบยอดรวมค่าไฟฟ้าย้อนหลัง 6 เดือน</p>
+                        <p className="text-[10px] text-slate-400">เปรียบเทียบยอดรวมค่าไฟฟ้าย้อนหลังตามจริง</p>
                       </div>
                     </div>
                     <span className={`px-2.5 py-1 rounded-full text-[10px] font-black tracking-wide ${
@@ -334,13 +611,13 @@ export default function ReportsPage() {
               {/* Dynamic SVG Double Bar Charts */}
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {/* Water Chart */}
-                <Panel title="💧 แผนภาพค่าน้ำประปา ย้อนหลัง 6 เดือน" subtitle="เปรียบเทียบรายรับค่าน้ำ (น้ำเงิน) ปะทะ ยอดจ่ายหลวงจริง (เทา)">
+                <Panel title={`💧 แผนภาพค่าน้ำประปา (${formatMonthThai(startMonth)} - ${formatMonthThai(endMonth)})`} subtitle="เปรียบเทียบรายรับค่าน้ำ (น้ำเงิน) ปะทะ ยอดจ่ายหลวงจริง (เทา)">
                   <div className="overflow-x-auto">
-                    <svg viewBox={`0 0 540 240`} className="w-full" style={{ minWidth: 450 }}>
+                    <svg viewBox={`0 0 ${waterChartWidth} 240`} className="h-[240px]" style={{ minWidth: waterChartWidth }}>
                       {/* Grid Lines */}
                       {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
                         <g key={i}>
-                          <line x1="60" y1={190 - pct * 150} x2="520" y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" />
+                          <line x1="60" y1={190 - pct * 150} x2={waterChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" />
                           <text x="50" y={194 - pct * 150} textAnchor="end" fontSize="9" fill="#94a3b8" fontWeight="bold">
                             {(maxWaterVal * pct).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </text>
@@ -408,13 +685,13 @@ export default function ReportsPage() {
                 </Panel>
 
                 {/* Electricity Chart */}
-                <Panel title="⚡ แผนภาพค่าไฟฟ้าหลวง ย้อนหลัง 6 เดือน" subtitle="เปรียบเทียบรายรับค่าไฟ (ส้ม) ปะทะ ยอดจ่ายหลวงจริง (แดง)">
+                <Panel title={`⚡ แผนภาพค่าไฟฟ้าหลวง (${formatMonthThai(startMonth)} - ${formatMonthThai(endMonth)})`} subtitle="เปรียบเทียบรายรับค่าไฟ (ส้ม) ปะทะ ยอดจ่ายหลวงจริง (แดง)">
                   <div className="overflow-x-auto">
-                    <svg viewBox={`0 0 540 240`} className="w-full" style={{ minWidth: 450 }}>
+                    <svg viewBox={`0 0 ${elecChartWidth} 240`} className="h-[240px]" style={{ minWidth: elecChartWidth }}>
                       {/* Grid Lines */}
                       {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
                         <g key={i}>
-                          <line x1="60" y1={190 - pct * 150} x2="520" y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" />
+                          <line x1="60" y1={190 - pct * 150} x2={elecChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" />
                           <text x="50" y={194 - pct * 150} textAnchor="end" fontSize="9" fill="#94a3b8" fontWeight="bold">
                             {(maxElecVal * pct).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </text>
