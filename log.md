@@ -1,5 +1,28 @@
 # Activity Log
 
+## [2026-05-23] Phase 5: Asset & Depreciation Tracker (Approve & Execution Complete 100%)
+- **Phase 5: Asset & Depreciation Tracker (TAS 16 Standard):**
+  - *Data Model & Schema Setup:* Deployed SQLite/PostgreSQL `assets` table schema mapping durable assets to business units. Programmed strict Straight-Line monthly depreciation logic: `(Cost - Salvage Value) / (Useful Life * 12)`.
+  - *Reconciliation & Ledger Posting:* Implemented a bulk posting endpoint `/assets/post-all-depreciation` and discrete `/assets/{asset_id}/post-depreciation` using dynamic `reference_id` (`depr_{asset_id}_{year}_{month}`) to avoid duplicate general ledger entries under the `DEPRECIATION` expense category.
+  - *Cash Flow Non-Cash Exclusions (TAS 7 Standard):* Configured `classify_cash_flow_transaction` to return `"non_cash", 0.0` for all depreciation transactions, cleanly bypassing Beginning Balance computations and statement calculations in compliance with TAS 7 rules.
+  - *Next.js Premium Glassmorphic Asset Panel:* Created a beautiful administrative control dashboard featuring dynamic aggregate summaries cards (Total Cost, Accumulated Depreciation, and Net Book Value), linear depreciation progress bars, modal form registries with business unit selector, and granular schedule projections.
+- **Verification:**
+  - *100% Type Safety:* Successfully ran frontend TypeScript type check (`npx tsc --noEmit`) and compiled backend `main.py` flawlessly with 0 errors.
+
+## [2026-05-23] Phase 3 & Phase 4: Statement of Cash Flows & Real-Time Expense Budget Limits (Approve & Execution Complete 100%)
+- **Phase 3: Real-Time Statement of Cash Flows (TAS 7 Standard):**
+  - *Standardized Classification:* Implemented `classify_cash_flow_transaction` that analyzes transaction types and descriptions using robust keyword matches to segregate all ledger data dynamically into Operating, Investing, and Financing activities.
+  - *Beginning Balance Calculations:* Programmed full aggregate summation of all income/expense entries prior to the chosen start date to represent correct Beginning Cash Balance.
+  - *Professional Excel Export:* Built `@app.get("/transactions/export/cashflow")` streaming beautifully formatted xlsx spreadsheets with dynamic widths, navy-accent headers (`#1B365D`), clean thin grid borders, bold subtitles, and formal accounting double-underline borders.
+  - *Next.js Cashflow Interface:* Created a stunning Next.js premium interactive dashboard under the "🧾 งบกระแสเงินสด" tab displaying Beginning Balance (Golden Glow), Net Cash Flow (Dynamic Blue/Red), and Ending Cash Balance (Emerald) followed by a 3-activity responsive card grid and download blob handlers.
+- **Phase 4: Multi-Business Expense Budgeting Limits (Budget Limits):**
+  - *Data Model & Schema Setup:* Created `Budget` table with unique constraint on `(unit_id, expense_category, period, year, month)` to prevent duplicate scopes, and defined Pydantic `BudgetCreate`, `Budget`, and `BudgetUsageResponse` schemas.
+  - *Real-Time Limit Auditing & Alert Engine:* Developed `check_budget_limit_and_alert` integrated into transaction hooks (`create_transaction` and `update_transaction`) that calculates cumulative month/year usage. If a transaction causes usage to exceed the limit, it immediately shoots a highly detailed alert message (⚠️ [เตือนงบประมาณเกินดุล]) to the owner's LINE OA Push API or LINE Notify fallback.
+  - *Next.js Glassmorphic Control Board:* Created a premium visual dashboard tab "🎯 ควบคุมงบประมาณ" displaying budget items alongside interactive Progress Indicators (Safe Green `< 70%`, Warning Amber `70-90%`, and Pulsing Ruby Red `> 100%` with breathing border glow animation).
+  - *Dynamic Budget Modal Form:* Designed an interactive creation Modal allowing direct selection of Business Units, pre-defined Expense Categories, period/year/month scopes, and amount limit inputs with safe deletion buttons.
+- **Verification:**
+  - *100% Type Safety:* Verified zero compiler warnings or errors by running `npx tsc --noEmit` inside `frontend/` with exit code 0.
+
 ## [2026-05-23] Supabase Production Database Sandbox Cleanup & Zero-Mock Ledger Slate (Approve & Execution Complete)
 - **Supabase Cloud Sandbox Cleanup (Option 1):**
   - *Clean Maintenance Script:* เขียนและพัฒนาสคริปต์ [scratch_clean_test.py](file:///d:/HorPak/scratch_clean_test.py) ในเวิร์กสเปซของระบบ เพื่อทำการเชื่อมต่อกับ Supabase PostgreSQL Cloud ภายนอกด้วยตัวแปรสภาพแวดล้อม `DATABASE_URL` จาก `backend/.env` อย่างปลอดภัย

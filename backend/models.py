@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum
+from sqlalchemy import Column, Integer, String, Float, ForeignKey, DateTime, Enum, UniqueConstraint, Boolean
 from sqlalchemy.orm import relationship
 from database import Base
 import enum
@@ -63,6 +63,7 @@ class ExpenseCategory(enum.Enum):
     SPARE_PARTS = "spare_parts"        # อะไหล่สำหรับอู่รถ
     MAINTENANCE = "maintenance"        # ค่าชำระซ่อมบำรุงห้องพัก/บ้านเช่า
     SALARY = "salary"                  # ค่าแรงช่าง/ค่าจ้างแม่บ้าน
+    DEPRECIATION = "depreciation"      # ค่าเสื่อมราคาของสินทรัพย์
     OTHER = "other"                    # ค่าใช้จ่ายอื่นๆ
 
 class Transaction(Base):
@@ -195,4 +196,43 @@ class MaintenanceTicket(Base):
     line_user_id = Column(String, nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     resolved_at = Column(DateTime, nullable=True)
+
+
+class Budget(Base):
+    __tablename__ = "budgets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    unit_id = Column(Integer, ForeignKey("business_units.id"), nullable=True)
+    expense_category = Column(Enum(ExpenseCategory), nullable=True)
+    amount_limit = Column(Float, nullable=False)
+    period = Column(String, default="monthly")  # "monthly" or "yearly"
+    year = Column(Integer, nullable=False)
+    month = Column(Integer, nullable=True)  # Nullable for yearly budgets
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    unit = relationship("BusinessUnit")
+
+    __table_args__ = (
+        UniqueConstraint('unit_id', 'expense_category', 'period', 'year', 'month', name='_unit_category_period_year_month_uc'),
+    )
+
+class Asset(Base):
+    __tablename__ = "assets"
+
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String, nullable=False)
+    code = Column(String, unique=True, index=True, nullable=False)
+    purchase_date = Column(DateTime, nullable=False)
+    purchase_cost = Column(Float, nullable=False)
+    salvage_value = Column(Float, nullable=False, default=0.0)
+    useful_life_years = Column(Integer, nullable=False)
+    description = Column(String, nullable=True)
+    is_disposed = Column(Boolean, default=False)
+    disposal_date = Column(DateTime, nullable=True)
+    disposal_value = Column(Float, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+    unit_id = Column(Integer, ForeignKey("business_units.id"), nullable=True)
+    unit = relationship("BusinessUnit")
+
 

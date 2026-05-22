@@ -871,6 +871,77 @@ async def send_financial_alert_to_owner(message: str):
         print(f"Error sending LINE Notify: {str(e)}")
         return False
 
+# Helper to check and alert budget limits
+async def check_budget_limit_and_alert(tx: models.Transaction, db: Session):
+    if tx.type != models.TransactionType.EXPENSE:
+        return
+        
+    # Extract year and month of the transaction
+    tx_date = tx.created_at or datetime.utcnow()
+    tx_year = tx_date.year
+    tx_month = tx_date.month
+
+    # Get matching budgets for the transaction year
+    budgets = db.query(models.Budget).filter(models.Budget.year == tx_year).all()
+    
+    for budget in budgets:
+        # Check if period matches
+        if budget.period == "monthly" and budget.month != tx_month:
+            continue
+            
+        # Check if unit_id matches
+        if budget.unit_id is not None and budget.unit_id != tx.unit_id:
+            continue
+            
+        # Check if expense_category matches
+        if budget.expense_category is not None and budget.expense_category != tx.expense_category:
+            continue
+            
+        # Calculate bounds
+        if budget.period == "monthly":
+            start_date = datetime(tx_year, tx_month, 1)
+            if tx_month == 12:
+                end_date = datetime(tx_year + 1, 1, 1)
+            else:
+                end_date = datetime(tx_year, tx_month + 1, 1)
+        else:
+            start_date = datetime(tx_year, 1, 1)
+            end_date = datetime(tx_year + 1, 1, 1)
+
+        # Query all actual expenses within this budget scope and timeframe
+        query = db.query(models.Transaction).filter(
+            models.Transaction.type == models.TransactionType.EXPENSE,
+            models.Transaction.created_at >= start_date,
+            models.Transaction.created_at < end_date
+        )
+        
+        if budget.unit_id is not None:
+            query = query.filter(models.Transaction.unit_id == budget.unit_id)
+        if budget.expense_category is not None:
+            query = query.filter(models.Transaction.expense_category == budget.expense_category)
+            
+        from sqlalchemy import func
+        actual_total = query.with_entities(func.sum(models.Transaction.amount)).scalar() or 0.0
+        
+        # If it exceeds the limit, send alert!
+        if actual_total > budget.amount_limit:
+            unit_name = budget.unit.name if budget.unit else "ทั่วไป/ส่วนกลาง (General)"
+            cat_name = EXPENSE_CATEGORY_THAI.get(budget.expense_category, "ทุกหมวดรายจ่าย")
+            period_str = f"ประจำเดือน {tx_month}/{tx_year}" if budget.period == "monthly" else f"ประจำปี {tx_year}"
+            
+            alert_msg = (
+                f"\n⚠️ [เตือนงบประมาณเกินดุล] รายจ่ายเกินเพดานงบควบคุม!\n"
+                f"━━━━━━━━━━━━━━━━━━\n"
+                f"🔹 ธุรกิจ: {unit_name}\n"
+                f"🔹 หมวดหมู่: {cat_name}\n"
+                f"🔹 ช่วงเวลา: {period_str}\n"
+                f"🔹 เพดานงบประมาณ: {budget.amount_limit:,.2f} บาท\n"
+                f"🔹 ยอดจ่ายสะสมจริง: {actual_total:,.2f} บาท\n"
+                f"🚨 เกินงบไปแล้ว: {actual_total - budget.amount_limit:,.2f} บาท!\n"
+                f"💡 กรุณาตรวจสอบและปรับเปลี่ยนแผนควบคุมต้นทุนครับ 🙏"
+            )
+            await send_financial_alert_to_owner(alert_msg)
+
 # Transactions
 @app.post("/transactions/", response_model=schemas.Transaction)
 async def create_transaction(transaction: schemas.TransactionCreate, db: Session = Depends(get_db)):
@@ -878,6 +949,9 @@ async def create_transaction(transaction: schemas.TransactionCreate, db: Session
     db.add(db_transaction)
     db.commit()
     db.refresh(db_transaction)
+    
+    # Check and trigger real-time budget alert
+    await check_budget_limit_and_alert(db_transaction, db)
     
     # Trigger LINE Notify for hand-recorded transactions
     time_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -911,7 +985,7 @@ def read_transactions(db: Session = Depends(get_db)):
     return db.query(models.Transaction).order_by(models.Transaction.created_at.desc()).all()
 
 @app.patch("/transactions/{transaction_id}/", response_model=schemas.Transaction)
-def update_transaction(transaction_id: int, tx_update: schemas.TransactionUpdate, db: Session = Depends(get_db)):
+async def update_transaction(transaction_id: int, tx_update: schemas.TransactionUpdate, db: Session = Depends(get_db)):
     db_tx = db.query(models.Transaction).filter(models.Transaction.id == transaction_id).first()
     if not db_tx:
         raise HTTPException(status_code=404, detail="Transaction not found")
@@ -936,7 +1010,12 @@ def update_transaction(transaction_id: int, tx_update: schemas.TransactionUpdate
             
     db.commit()
     db.refresh(db_tx)
+    
+    # Check and trigger real-time budget alert
+    await check_budget_limit_and_alert(db_tx, db)
+    
     return db_tx
+
 
 @app.delete("/transactions/{transaction_id}/")
 def delete_transaction(transaction_id: int, db: Session = Depends(get_db)):
@@ -3093,4 +3172,662 @@ async def verify_slip(type: str, target_id: str, qr_data: Optional[str] = None, 
         "sender": sender_name,
         "receiver": receiver_name,
         "message": "สแกนและตรวจสอบข้อมูลกับระบบธนาคารเรียบร้อยแล้ว" if slipok_api_key else "ตรวจสอบสลิปสำเร็จ (โหมดทดสอบจำลอง Sandbox)"
+    }
+
+
+# ==========================================
+# Budgets & Expense Limits APIs (Phase 4)
+# ==========================================
+@app.get("/budgets/", response_model=List[schemas.BudgetUsageResponse])
+def get_budgets(db: Session = Depends(get_db)):
+    budgets = db.query(models.Budget).order_by(models.Budget.created_at.desc()).all()
+    response = []
+    
+    for budget in budgets:
+        year = budget.year
+        month = budget.month
+        
+        # Calculate period bounds
+        if budget.period == "monthly":
+            start_date = datetime(year, month, 1)
+            if month == 12:
+                end_date = datetime(year + 1, 1, 1)
+            else:
+                end_date = datetime(year, month + 1, 1)
+        else: # yearly
+            start_date = datetime(year, 1, 1)
+            end_date = datetime(year + 1, 1, 1)
+            
+        query = db.query(models.Transaction).filter(
+            models.Transaction.type == models.TransactionType.EXPENSE,
+            models.Transaction.created_at >= start_date,
+            models.Transaction.created_at < end_date
+        )
+        
+        if budget.unit_id is not None:
+            query = query.filter(models.Transaction.unit_id == budget.unit_id)
+        if budget.expense_category is not None:
+            query = query.filter(models.Transaction.expense_category == budget.expense_category)
+            
+        from sqlalchemy import func
+        actual_total = query.with_entities(func.sum(models.Transaction.amount)).scalar() or 0.0
+        
+        percent_usage = (actual_total / budget.amount_limit) * 100 if budget.amount_limit > 0 else 0.0
+        
+        response.append(schemas.BudgetUsageResponse(
+            budget=budget,
+            current_usage=actual_total,
+            percent_usage=percent_usage
+        ))
+        
+    return response
+
+@app.post("/budgets/", response_model=schemas.Budget)
+def create_budget(budget: schemas.BudgetCreate, db: Session = Depends(get_db)):
+    existing = db.query(models.Budget).filter(
+        models.Budget.unit_id == budget.unit_id,
+        models.Budget.expense_category == budget.expense_category,
+        models.Budget.period == budget.period,
+        models.Budget.year == budget.year,
+        models.Budget.month == budget.month
+    ).first()
+    
+    if existing:
+        existing.amount_limit = budget.amount_limit
+        db.commit()
+        db.refresh(existing)
+        return existing
+        
+    db_budget = models.Budget(**budget.dict())
+    db.add(db_budget)
+    try:
+        db.commit()
+        db.refresh(db_budget)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"เกิดข้อผิดพลาดในการกำหนดงบประมาณ: มีข้อมูลสิทธิ์นี้ซ้ำซ้อนในระบบ")
+        
+    return db_budget
+
+@app.delete("/budgets/{budget_id}/")
+def delete_budget(budget_id: int, db: Session = Depends(get_db)):
+    db_budget = db.query(models.Budget).filter(models.Budget.id == budget_id).first()
+    if not db_budget:
+        raise HTTPException(status_code=404, detail="Budget limit not found")
+        
+    db.delete(db_budget)
+    db.commit()
+    return {"status": "success", "message": "ลบงบประมาณควบคุมเรียบร้อยแล้ว"}
+
+
+# Helper to classify transaction for Cash Flow Statement (TAS 7)
+def classify_cash_flow_transaction(tx: models.Transaction):
+    if tx.expense_category == models.ExpenseCategory.DEPRECIATION or (hasattr(tx.expense_category, 'value') and tx.expense_category.value == "depreciation") or tx.expense_category == "depreciation":
+        return "non_cash", 0.0
+        
+    desc = tx.description or ""
+    amount = tx.amount
+    
+    # Keyword Lists
+    investing_keywords = ["ปรับปรุง", "ต่อเติม", "โครงสร้าง", "ซื้อเครื่องมือ", "ซื้ออุปกรณ์", "ตกแต่ง", "ซื้อสินทรัพย์", "ค่าปรับปรุง", "ซื้อทรัพย์สิน"]
+    financing_keywords = ["กู้เงิน", "กู้ยืม", "เงินลงทุน", "เพิ่มทุน", "ทุนหมุนเวียน", "จ่ายเงินกู้", "ชำระเงินกู้", "ชำระดอกเบี้ย", "คืนเงินกู้", "ปันผล"]
+    
+    is_investing = any(kw in desc for kw in investing_keywords)
+    is_financing = any(kw in desc for kw in financing_keywords)
+    
+    if tx.type == models.TransactionType.INCOME:
+        if is_financing:
+            return "financing", amount
+        elif is_investing:
+            return "investing", amount
+        else:
+            return "operating", amount
+    else: # EXPENSE
+        if is_financing:
+            return "financing", -amount
+        elif is_investing:
+            return "investing", -amount
+        else:
+            return "operating", -amount
+
+# ==========================================
+# Cash Flow Statement APIs (Phase 3)
+# ==========================================
+@app.get("/transactions/cashflow", response_model=schemas.CashFlowStatementResponse)
+def get_cash_flow_statement(start_month: str, end_month: str, db: Session = Depends(get_db)):
+    try:
+        start_year = int(start_month.split("-")[0])
+        start_m = int(start_month.split("-")[1])
+        start_date = datetime(start_year, start_m, 1)
+        
+        end_year = int(end_month.split("-")[0])
+        end_m = int(end_month.split("-")[1])
+        if end_m == 12:
+            end_date = datetime(end_year + 1, 1, 1)
+        else:
+            end_date = datetime(end_year, end_m + 1, 1)
+    except Exception:
+        raise HTTPException(status_code=400, detail="ฟอร์แมตเดือนไม่ถูกต้อง กรุณาใช้ YYYY-MM")
+        
+    # Calculate Beginning Balance (Cumulative cash flow before start_date)
+    income_before = db.query(func.sum(models.Transaction.amount)).filter(
+        models.Transaction.type == models.TransactionType.INCOME,
+        models.Transaction.created_at < start_date
+    ).scalar() or 0.0
+    
+    expense_before = db.query(func.sum(models.Transaction.amount)).filter(
+        models.Transaction.type == models.TransactionType.EXPENSE,
+        models.Transaction.created_at < start_date,
+        models.Transaction.expense_category != models.ExpenseCategory.DEPRECIATION
+    ).scalar() or 0.0
+    
+    beginning_balance = income_before - expense_before
+    
+    # Query transactions in the period
+    txs = db.query(models.Transaction).filter(
+        models.Transaction.created_at >= start_date,
+        models.Transaction.created_at < end_date
+    ).order_by(models.Transaction.created_at.asc()).all()
+    
+    operating_items = []
+    investing_items = []
+    financing_items = []
+    
+    for tx in txs:
+        activity, net_amount = classify_cash_flow_transaction(tx)
+        if activity == "non_cash":
+            continue
+        item = schemas.CashFlowItem(
+            description=tx.description,
+            amount=net_amount,
+            date=tx.created_at
+        )
+        if activity == "operating":
+            operating_items.append(item)
+        elif activity == "investing":
+            investing_items.append(item)
+        elif activity == "financing":
+            financing_items.append(item)
+            
+    operating_subtotal = sum(i.amount for i in operating_items)
+    investing_subtotal = sum(i.amount for i in investing_items)
+    financing_subtotal = sum(i.amount for i in financing_items)
+    
+    net_increase = operating_subtotal + investing_subtotal + financing_subtotal
+    ending_balance = beginning_balance + net_increase
+    
+    return schemas.CashFlowStatementResponse(
+        start_month=start_month,
+        end_month=end_month,
+        beginning_balance=beginning_balance,
+        operating=schemas.CashFlowActivitySection(items=operating_items, subtotal=operating_subtotal),
+        investing=schemas.CashFlowActivitySection(items=investing_items, subtotal=investing_subtotal),
+        financing=schemas.CashFlowActivitySection(items=financing_items, subtotal=financing_subtotal),
+        net_increase=net_increase,
+        ending_balance=ending_balance
+    )
+
+from fastapi.responses import StreamingResponse
+import io
+from openpyxl import Workbook
+from openpyxl.styles import Font, Alignment, PatternFill, Border, Side
+
+@app.get("/transactions/export/cashflow")
+def export_cash_flow_statement(start_month: str, end_month: str, db: Session = Depends(get_db)):
+    # Re-calculate cash flow data
+    data = get_cash_flow_statement(start_month, end_month, db)
+    
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Statement of Cash Flows"
+    
+    # Prevent gridlines from being hidden
+    ws.views.sheetView[0].showGridLines = True
+    
+    # Styles
+    title_font = Font(name="Segoe UI", size=16, bold=True, color="1F4E79")
+    subtitle_font = Font(name="Segoe UI", size=11, italic=True, color="595959")
+    header_font = Font(name="Segoe UI", size=11, bold=True, color="FFFFFF")
+    section_font = Font(name="Segoe UI", size=11, bold=True, color="000000")
+    bold_font = Font(name="Segoe UI", size=11, bold=True, color="000000")
+    regular_font = Font(name="Segoe UI", size=11, color="000000")
+    
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    subtotal_fill = PatternFill(start_color="F2F2F2", end_color="F2F2F2", fill_type="solid")
+    
+    thin_border_side = Side(style="thin", color="D9D9D9")
+    thin_border = Border(left=thin_border_side, right=thin_border_side, top=thin_border_side, bottom=thin_border_side)
+    double_bottom_border = Border(top=Side(style="thin", color="000000"), bottom=Side(style="double", color="000000"))
+    
+    # Title Block
+    ws.merge_cells("A1:C1")
+    ws["A1"] = "งบกระแสเงินสด (Statement of Cash Flows)"
+    ws["A1"].font = title_font
+    ws["A1"].alignment = Alignment(horizontal="center")
+    
+    ws.merge_cells("A2:C2")
+    ws["A2"] = f"สำหรับช่วงเวลา {start_month} ถึง {end_month} (Sovereign Multi-Business ERP)"
+    ws["A2"].font = subtitle_font
+    ws["A2"].alignment = Alignment(horizontal="center")
+    
+    ws.row_dimensions[1].height = 25
+    ws.row_dimensions[2].height = 18
+    
+    # Table Headers
+    ws.append([])
+    headers = ["รายการกระแสเงินสด", "วันที่ทำรายการ", "จำนวนเงิน (บาท)"]
+    ws.append(headers)
+    ws.row_dimensions[4].height = 24
+    
+    for col_idx in range(1, 4):
+        cell = ws.cell(row=4, column=col_idx)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = Alignment(horizontal="center" if col_idx != 1 else "left", vertical="center")
+        cell.border = thin_border
+        
+    current_row = 5
+    
+    # Helper to write subtotal row
+    def write_subtotal(label, val):
+        nonlocal current_row
+        ws.cell(row=current_row, column=1, value=label).font = bold_font
+        ws.cell(row=current_row, column=1).alignment = Alignment(indent=1)
+        ws.cell(row=current_row, column=3, value=val).font = bold_font
+        ws.cell(row=current_row, column=3).number_format = '#,##0.00'
+        
+        # Style row
+        for c in range(1, 4):
+            ws.cell(row=current_row, column=c).fill = subtotal_fill
+            ws.cell(row=current_row, column=c).border = Border(top=Side(style="thin", color="000000"), bottom=Side(style="thin", color="000000"))
+        
+        ws.row_dimensions[current_row].height = 20
+        current_row += 1
+
+    # Helper to write section items
+    def write_section(section_name, section_data):
+        nonlocal current_row
+        ws.cell(row=current_row, column=1, value=section_name).font = section_font
+        ws.cell(row=current_row, column=1).border = thin_border
+        current_row += 1
+        
+        for item in section_data.items:
+            ws.cell(row=current_row, column=1, value=item.description).font = regular_font
+            ws.cell(row=current_row, column=1).alignment = Alignment(indent=2)
+            ws.cell(row=current_row, column=1).border = thin_border
+            
+            ws.cell(row=current_row, column=2, value=item.date.strftime("%Y-%m-%d %H:%M")).font = regular_font
+            ws.cell(row=current_row, column=2).alignment = Alignment(horizontal="center")
+            ws.cell(row=current_row, column=2).border = thin_border
+            
+            ws.cell(row=current_row, column=3, value=item.amount).font = regular_font
+            ws.cell(row=current_row, column=3).number_format = '#,##0.00'
+            ws.cell(row=current_row, column=3).border = thin_border
+            current_row += 1
+            
+        write_subtotal(f"กระแสเงินสดสุทธิจาก{section_name}", section_data.subtotal)
+
+    # 1. Beginning Cash Balance
+    ws.cell(row=current_row, column=1, value="เงินสดและรายการเทียบเท่าเงินสดต้นงวด").font = bold_font
+    ws.cell(row=current_row, column=3, value=data.beginning_balance).font = bold_font
+    ws.cell(row=current_row, column=3).number_format = '#,##0.00'
+    for col in range(1, 4):
+        ws.cell(row=current_row, column=col).border = thin_border
+    current_row += 1
+    
+    # 2. Operating Activities
+    write_section("1. กิจกรรมดำเนินงาน (Operating Activities)", data.operating)
+    
+    # 3. Investing Activities
+    write_section("2. กิจกรรมลงทุน (Investing Activities)", data.investing)
+    
+    # 4. Financing Activities
+    write_section("3. กิจกรรมจัดหาเงิน (Financing Activities)", data.financing)
+    
+    # 5. Summary / Net Increase & Ending Balance
+    ws.cell(row=current_row, column=1, value="เงินสดเพิ่มขึ้น (ลดลง) สุทธิ").font = bold_font
+    ws.cell(row=current_row, column=3, value=data.net_increase).font = bold_font
+    ws.cell(row=current_row, column=3).number_format = '#,##0.00'
+    for col in range(1, 4):
+        ws.cell(row=current_row, column=col).border = thin_border
+    current_row += 1
+    
+    # Ending Cash Balance
+    ws.cell(row=current_row, column=1, value="เงินสดและรายการเทียบเท่าเงินสดปลายงวด").font = bold_font
+    ws.cell(row=current_row, column=3, value=data.ending_balance).font = bold_font
+    ws.cell(row=current_row, column=3).number_format = '#,##0.00'
+    for col in range(1, 4):
+        ws.cell(row=current_row, column=col).border = double_bottom_border
+    current_row += 1
+    
+    # Auto-adjust column widths
+    for col in ws.columns:
+        max_len = max(len(str(cell.value or '')) for cell in col)
+        col_letter = col[0].column_letter
+        ws.column_dimensions[col_letter].width = max(max_len + 3, 12)
+        
+    ws.column_dimensions['A'].width = 45
+    ws.column_dimensions['B'].width = 18
+    ws.column_dimensions['C'].width = 22
+    
+    # Save to memory stream and return
+    stream = io.BytesIO()
+    wb.save(stream)
+    stream.seek(0)
+    
+    filename = f"Cash_Flow_Statement_{start_month}_to_{end_month}.xlsx"
+    headers_response = {
+        'Content-Disposition': f'attachment; filename="{filename}"'
+    }
+    return StreamingResponse(
+        stream,
+        headers=headers_response,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+
+
+# ==========================================
+# Assets & Depreciation APIs (Phase 5)
+# ==========================================
+
+def get_asset_depreciation_details(asset: models.Asset, target_date: datetime = None):
+    if not target_date:
+        target_date = datetime.utcnow()
+        
+    purchase_cost = asset.purchase_cost
+    salvage_value = asset.salvage_value
+    useful_life_years = asset.useful_life_years
+    
+    total_depreciable_amount = max(0.0, purchase_cost - salvage_value)
+    useful_life_months = useful_life_years * 12
+    
+    monthly_dep = total_depreciable_amount / useful_life_months if useful_life_months > 0 else 0.0
+    
+    end_date = target_date
+    if asset.is_disposed and asset.disposal_date:
+        end_date = asset.disposal_date
+        
+    if end_date < asset.purchase_date:
+        accrued_months = 0
+    else:
+        years_diff = end_date.year - asset.purchase_date.year
+        months_diff = end_date.month - asset.purchase_date.month
+        accrued_months = years_diff * 12 + months_diff + 1  # Include purchase month
+        
+    accrued_months_capped = min(accrued_months, useful_life_months)
+    
+    accumulated_dep = monthly_dep * accrued_months_capped
+    net_book_val = purchase_cost - accumulated_dep
+    dep_percent = (accumulated_dep / total_depreciable_amount * 100) if total_depreciable_amount > 0 else 100.0
+    
+    return {
+        "accumulated_depreciation": round(accumulated_dep, 2),
+        "net_book_value": round(net_book_val, 2),
+        "depreciated_percent": round(dep_percent, 2),
+        "monthly_depreciation": round(monthly_dep, 2)
+    }
+
+@app.get("/assets/", response_model=List[schemas.Asset])
+def get_assets(db: Session = Depends(get_db)):
+    assets = db.query(models.Asset).order_by(models.Asset.code.asc()).all()
+    response = []
+    for asset in assets:
+        details = get_asset_depreciation_details(asset)
+        
+        asset_schema = schemas.Asset(
+            id=asset.id,
+            name=asset.name,
+            code=asset.code,
+            purchase_date=asset.purchase_date,
+            purchase_cost=asset.purchase_cost,
+            salvage_value=asset.salvage_value,
+            useful_life_years=asset.useful_life_years,
+            description=asset.description,
+            unit_id=asset.unit_id,
+            is_disposed=asset.is_disposed,
+            disposal_date=asset.disposal_date,
+            disposal_value=asset.disposal_value,
+            created_at=asset.created_at,
+            unit=asset.unit,
+            accumulated_depreciation=details["accumulated_depreciation"],
+            net_book_value=details["net_book_value"],
+            depreciated_percent=details["depreciated_percent"],
+            monthly_depreciation=details["monthly_depreciation"]
+        )
+        response.append(asset_schema)
+    return response
+
+@app.get("/assets/summary", response_model=schemas.AssetSummaryResponse)
+def get_assets_summary(db: Session = Depends(get_db)):
+    assets = db.query(models.Asset).all()
+    total_cost = 0.0
+    total_accumulated = 0.0
+    total_nbv = 0.0
+    
+    for asset in assets:
+        details = get_asset_depreciation_details(asset)
+        total_cost += asset.purchase_cost
+        total_accumulated += details["accumulated_depreciation"]
+        total_nbv += details["net_book_value"]
+        
+    return schemas.AssetSummaryResponse(
+        total_cost=round(total_cost, 2),
+        total_accumulated_depreciation=round(total_accumulated, 2),
+        total_net_book_value=round(total_nbv, 2)
+    )
+
+@app.post("/assets/", response_model=schemas.Asset)
+def create_asset(asset: schemas.AssetCreate, db: Session = Depends(get_db)):
+    existing = db.query(models.Asset).filter(models.Asset.code == asset.code).first()
+    if existing:
+        raise HTTPException(status_code=400, detail=f"รหัสสินทรัพย์ {asset.code} ถูกใช้งานแล้ว")
+        
+    db_asset = models.Asset(**asset.dict())
+    db.add(db_asset)
+    try:
+        db.commit()
+        db.refresh(db_asset)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=f"ไม่สามารถเพิ่มสินทรัพย์ได้: {str(e)}")
+        
+    details = get_asset_depreciation_details(db_asset)
+    
+    return schemas.Asset(
+        id=db_asset.id,
+        name=db_asset.name,
+        code=db_asset.code,
+        purchase_date=db_asset.purchase_date,
+        purchase_cost=db_asset.purchase_cost,
+        salvage_value=db_asset.salvage_value,
+        useful_life_years=db_asset.useful_life_years,
+        description=db_asset.description,
+        unit_id=db_asset.unit_id,
+        is_disposed=db_asset.is_disposed,
+        disposal_date=db_asset.disposal_date,
+        disposal_value=db_asset.disposal_value,
+        created_at=db_asset.created_at,
+        unit=db_asset.unit,
+        accumulated_depreciation=details["accumulated_depreciation"],
+        net_book_value=details["net_book_value"],
+        depreciated_percent=details["depreciated_percent"],
+        monthly_depreciation=details["monthly_depreciation"]
+    )
+
+@app.delete("/assets/{asset_id}/")
+def delete_asset(asset_id: int, db: Session = Depends(get_db)):
+    db_asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
+    if not db_asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+        
+    # Delete related depreciation transactions
+    ref_prefix = f"depr_{asset_id}_%"
+    db.query(models.Transaction).filter(models.Transaction.reference_id.like(ref_prefix)).delete(synchronize_session=False)
+    
+    db.delete(db_asset)
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"ไม่สามารถลบสินทรัพย์ได้: {str(e)}")
+        
+    return {"status": "success", "message": "ลบสินทรัพย์และรายการทางบัญชีที่เกี่ยวข้องเรียบร้อยแล้ว"}
+
+@app.get("/assets/{asset_id}/schedule", response_model=List[schemas.DepreciationScheduleItem])
+def get_asset_depreciation_schedule(asset_id: int, db: Session = Depends(get_db)):
+    asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+        
+    purchase_cost = asset.purchase_cost
+    salvage_value = asset.salvage_value
+    useful_life_years = asset.useful_life_years
+    total_depreciable = max(0.0, purchase_cost - salvage_value)
+    
+    annual_dep = total_depreciable / useful_life_years if useful_life_years > 0 else 0.0
+    
+    schedule = []
+    accumulated = 0.0
+    nbv = purchase_cost
+    
+    for year in range(1, useful_life_years + 1):
+        dep_expense = annual_dep
+        if accumulated + dep_expense > total_depreciable:
+            dep_expense = total_depreciable - accumulated
+        
+        accumulated += dep_expense
+        nbv = purchase_cost - accumulated
+        
+        schedule.append(schemas.DepreciationScheduleItem(
+            period=f"ปีที่ {year} (Year {year})",
+            depreciation_expense=round(dep_expense, 2),
+            accumulated_depreciation=round(accumulated, 2),
+            net_book_value=round(nbv, 2)
+        ))
+        
+    return schedule
+
+@app.post("/assets/{asset_id}/post-depreciation")
+def post_depreciation(asset_id: int, year: int, month: int, db: Session = Depends(get_db)):
+    asset = db.query(models.Asset).filter(models.Asset.id == asset_id).first()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+        
+    purchase_cost = asset.purchase_cost
+    salvage_value = asset.salvage_value
+    useful_life_years = asset.useful_life_years
+    total_depreciable_amount = max(0.0, purchase_cost - salvage_value)
+    useful_life_months = useful_life_years * 12
+    monthly_dep = total_depreciable_amount / useful_life_months if useful_life_months > 0 else 0.0
+    
+    target_date = datetime(year, month, 1)
+    purchase_date_start = datetime(asset.purchase_date.year, asset.purchase_date.month, 1)
+    
+    if target_date < purchase_date_start:
+        raise HTTPException(status_code=400, detail="ไม่สามารถบันทึกค่าเสื่อมราคาก่อนเดือนที่ซื้อได้")
+        
+    diff_months = (year - asset.purchase_date.year) * 12 + (month - asset.purchase_date.month)
+    
+    if diff_months >= useful_life_months:
+        raise HTTPException(status_code=400, detail="สินทรัพย์เสื่อมราคาหมดอายุการใช้งานแล้ว")
+        
+    if asset.is_disposed and asset.disposal_date:
+        disposal_date_start = datetime(asset.disposal_date.year, asset.disposal_date.month, 1)
+        if target_date > disposal_date_start:
+            raise HTTPException(status_code=400, detail="สินทรัพย์ถูกจำหน่าย/ตัดบัญชีไปแล้ว")
+            
+    ref_id = f"depr_{asset_id}_{year}_{month:02d}"
+    existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+    
+    description = f"ค่าเสื่อมราคา {asset.name} ({asset.code}) ประจำเดือน {month:02d}/{year}"
+    amount = round(monthly_dep, 2)
+    
+    if existing_tx:
+        existing_tx.amount = amount
+        existing_tx.description = description
+        existing_tx.unit_id = asset.unit_id
+        db_tx = existing_tx
+    else:
+        db_tx = models.Transaction(
+            type=models.TransactionType.EXPENSE,
+            amount=amount,
+            description=description,
+            reference_id=ref_id,
+            unit_id=asset.unit_id,
+            expense_category=models.ExpenseCategory.DEPRECIATION,
+            created_at=datetime(year, month, 28)
+        )
+        db.add(db_tx)
+        
+    try:
+        db.commit()
+        db.refresh(db_tx)
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"ไม่สามารถบันทึกธุรกรรมได้: {str(e)}")
+        
+    return {"status": "success", "message": f"บันทึกค่าเสื่อมราคาสำหรับ {asset.name} ประจำเดือน {month:02d}/{year} เป็นเงิน {amount:,.2f} บาท เรียบร้อยแล้ว", "transaction": db_tx}
+
+@app.post("/assets/post-all-depreciation")
+def post_all_depreciation(year: int, month: int, db: Session = Depends(get_db)):
+    assets = db.query(models.Asset).filter(models.Asset.is_disposed == False).all()
+    disposed_assets = db.query(models.Asset).filter(models.Asset.is_disposed == True).all()
+    
+    target_date = datetime(year, month, 1)
+    posted_count = 0
+    total_posted_amount = 0.0
+    
+    all_assets = assets + disposed_assets
+    
+    for asset in all_assets:
+        purchase_date_start = datetime(asset.purchase_date.year, asset.purchase_date.month, 1)
+        if target_date < purchase_date_start:
+            continue
+            
+        diff_months = (year - asset.purchase_date.year) * 12 + (month - asset.purchase_date.month)
+        if diff_months >= asset.useful_life_years * 12:
+            continue
+            
+        if asset.is_disposed and asset.disposal_date:
+            disposal_date_start = datetime(asset.disposal_date.year, asset.disposal_date.month, 1)
+            if target_date > disposal_date_start:
+                continue
+                
+        total_depreciable_amount = max(0.0, asset.purchase_cost - asset.salvage_value)
+        useful_life_months = asset.useful_life_years * 12
+        monthly_dep = total_depreciable_amount / useful_life_months if useful_life_months > 0 else 0.0
+        amount = round(monthly_dep, 2)
+        
+        ref_id = f"depr_{asset.id}_{year}_{month:02d}"
+        existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+        description = f"ค่าเสื่อมราคา {asset.name} ({asset.code}) ประจำเดือน {month:02d}/{year}"
+        
+        if existing_tx:
+            existing_tx.amount = amount
+            existing_tx.description = description
+            existing_tx.unit_id = asset.unit_id
+        else:
+            db_tx = models.Transaction(
+                type=models.TransactionType.EXPENSE,
+                amount=amount,
+                description=description,
+                reference_id=ref_id,
+                unit_id=asset.unit_id,
+                expense_category=models.ExpenseCategory.DEPRECIATION,
+                created_at=datetime(year, month, 28)
+            )
+            db.add(db_tx)
+            
+        posted_count += 1
+        total_posted_amount += amount
+        
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=f"ไม่สามารถบันทึกธุรกรรมทั้งหมดได้: {str(e)}")
+        
+    return {
+        "status": "success",
+        "message": f"บันทึกค่าเสื่อมราคาสินทรัพย์สำเร็จทั้งหมด {posted_count} รายการ รวมเป็นเงิน {total_posted_amount:,.2f} บาท เรียบร้อยแล้ว"
     }

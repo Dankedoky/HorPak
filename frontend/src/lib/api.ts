@@ -458,4 +458,98 @@ export async function deleteMaintenanceTicket(ticketId: number) {
   return res.json();
 }
 
+// Budget APIs
+export async function fetchBudgets() {
+  const res = await authFetch(`${API_BASE_URL}/budgets/`);
+  return res.json();
+}
+
+export async function createBudget(budget: Record<string, unknown>) {
+  const res = await authFetch(`${API_BASE_URL}/budgets/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(budget),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการสร้างงบประมาณ");
+  }
+  return res.json();
+}
+
+export async function deleteBudget(budgetId: number) {
+  const res = await authFetch(`${API_BASE_URL}/budgets/${budgetId}/`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการลบงบประมาณ");
+  }
+  return res.json();
+}
+
+// ==========================================
+// Asset APIs (Phase 5)
+// ==========================================
+export async function fetchAssets() {
+  const res = await authFetch(`${API_BASE_URL}/assets/`);
+  return res.json();
+}
+
+export async function createAsset(asset: Record<string, unknown>) {
+  const res = await authFetch(`${API_BASE_URL}/assets/`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(asset),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการสร้างสินทรัพย์");
+  }
+  return res.json();
+}
+
+export async function deleteAsset(assetId: number) {
+  const res = await authFetch(`${API_BASE_URL}/assets/${assetId}/`, {
+    method: 'DELETE',
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการลบสินทรัพย์");
+  }
+  return res.json();
+}
+
+export async function fetchAssetSummary() {
+  const res = await authFetch(`${API_BASE_URL}/assets/summary`);
+  return res.json();
+}
+
+export async function fetchAssetSchedule(assetId: number) {
+  const res = await authFetch(`${API_BASE_URL}/assets/${assetId}/schedule`);
+  return res.json();
+}
+
+export async function postDepreciation(assetId: number, year: number, month: number) {
+  const res = await authFetch(`${API_BASE_URL}/assets/${assetId}/post-depreciation?year=${year}&month=${month}`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการบันทึกค่าเสื่อมราคา");
+  }
+  return res.json();
+}
+
+export async function postAllDepreciation(year: number, month: number) {
+  const res = await authFetch(`${API_BASE_URL}/assets/post-all-depreciation?year=${year}&month=${month}`, {
+    method: 'POST',
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการบันทึกค่าเสื่อมราคาสินทรัพย์ทั้งหมด");
+  }
+  return res.json();
+}
+
 

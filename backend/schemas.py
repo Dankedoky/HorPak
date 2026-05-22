@@ -447,8 +447,111 @@ class SpreadsheetRoomResponse(BaseModel):
     payment_status: str
     remark: Optional[str] = None
     move_out: Optional[str] = None
-    vacant: Optional[str] = None
     paid_at: Optional[str] = None
+
+
+# Budget Schemas
+class BudgetBase(BaseModel):
+    unit_id: Optional[int] = None
+    expense_category: Optional[ExpenseCategory] = None
+    amount_limit: float
+    period: str = "monthly"  # "monthly" or "yearly"
+    year: int
+    month: Optional[int] = None
+
+class BudgetCreate(BudgetBase):
+    pass
+
+class Budget(BudgetBase):
+    id: int
+    created_at: datetime
+    unit: Optional[BusinessUnitMinimal] = None
+
+    class Config:
+        from_attributes = True
+
+class BudgetUsageResponse(BaseModel):
+    budget: Budget
+    current_usage: float
+    percent_usage: float
+
+
+# Cash Flow Schemas
+class CashFlowItem(BaseModel):
+    description: str
+    amount: float
+    date: datetime
+
+class CashFlowActivitySection(BaseModel):
+    items: List[CashFlowItem]
+    subtotal: float
+
+class CashFlowStatementResponse(BaseModel):
+    start_month: str
+    end_month: str
+    beginning_balance: float
+    operating: CashFlowActivitySection
+    investing: CashFlowActivitySection
+    financing: CashFlowActivitySection
+    net_increase: float
+    ending_balance: float
+
+# Asset Schemas
+class AssetBase(BaseModel):
+    name: str
+    code: str
+    purchase_date: datetime
+    purchase_cost: float
+    salvage_value: float = 0.0
+    useful_life_years: int
+    description: Optional[str] = None
+    unit_id: Optional[int] = None
+
+class AssetCreate(AssetBase):
+    pass
+
+class AssetUpdate(BaseModel):
+    name: Optional[str] = None
+    code: Optional[str] = None
+    purchase_date: Optional[datetime] = None
+    purchase_cost: Optional[float] = None
+    salvage_value: Optional[float] = None
+    useful_life_years: Optional[int] = None
+    description: Optional[str] = None
+    unit_id: Optional[int] = None
+    is_disposed: Optional[bool] = None
+    disposal_date: Optional[datetime] = None
+    disposal_value: Optional[float] = None
+
+class Asset(AssetBase):
+    id: int
+    is_disposed: bool
+    disposal_date: Optional[datetime] = None
+    disposal_value: Optional[float] = None
+    created_at: datetime
+    unit: Optional[BusinessUnitMinimal] = None
+    
+    # Calculated on-the-fly fields
+    accumulated_depreciation: float = 0.0
+    net_book_value: float = 0.0
+    depreciated_percent: float = 0.0
+    monthly_depreciation: float = 0.0
+
+    class Config:
+        from_attributes = True
+
+class AssetSummaryResponse(BaseModel):
+    total_cost: float
+    total_accumulated_depreciation: float
+    total_net_book_value: float
+
+class DepreciationScheduleItem(BaseModel):
+    period: str  # e.g., "Year 1", "2026-05"
+    depreciation_expense: float
+    accumulated_depreciation: float
+    net_book_value: float
+
+
 
 
 
