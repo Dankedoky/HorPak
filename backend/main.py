@@ -1,5 +1,5 @@
 from fastapi import FastAPI, Depends, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, JSONResponse
 from sqlalchemy.orm import Session
 from typing import List, Optional
 import os
@@ -46,15 +46,46 @@ def get_line_blob_api() -> AsyncMessagingApiBlob:
 
 from fastapi.middleware.cors import CORSMiddleware
 
+def get_cors_origins() -> list[str]:
+    origins = os.getenv("CORS_ORIGINS")
+    if origins:
+        return [origin.strip() for origin in origins.split(",") if origin.strip()]
+    return ["https://hor-pak.vercel.app", "http://localhost:3000"]
+
+
 app = FastAPI(title="Sovereign Accounting API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=get_cors_origins(),
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+PUBLIC_PATHS = {
+    "/",
+    "/auth/login",
+    "/webhook",
+    "/webhook/",
+    "/docs",
+    "/redoc",
+    "/openapi.json",
+}
+
+
+@app.middleware("http")
+async def require_admin_token(request: Request, call_next):
+    if request.method == "OPTIONS" or request.url.path in PUBLIC_PATHS:
+        return await call_next(request)
+
+    try:
+        get_current_user(request)
+    except HTTPException as exc:
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+
+    return await call_next(request)
 
 def get_current_billing_month(ref_date_str: str = None) -> str:
     from datetime import datetime, timedelta

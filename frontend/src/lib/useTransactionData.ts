@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { authFetch } from "./api";
 
 export enum TransactionType {
   INCOME = "income",
@@ -37,7 +38,8 @@ export function useTransactionData(): TransactionDashboard {
   const fetchTransactions = async () => {
     setIsLoading(true);
     try {
-      const response = await fetch("http://localhost:8000/transactions/");
+      const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const response = await authFetch(`${apiBase}/transactions/`);
       if (!response.ok) throw new Error("Failed to fetch transactions");
       const data = await response.json();
       setTransactions(data);

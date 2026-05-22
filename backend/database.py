@@ -5,12 +5,17 @@ import os
 import logging
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(__file__), ".env"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("database")
 
 SQLALCHEMY_DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./dormitory.db")
+APP_ENV = (os.getenv("APP_ENV") or os.getenv("ENV") or "").lower()
+IS_PRODUCTION = APP_ENV == "production" or os.getenv("RENDER", "").lower() == "true"
+
+if IS_PRODUCTION and SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
+    raise RuntimeError("DATABASE_URL must point to PostgreSQL/Supabase in production.")
 
 # Robust database engine initialization with graceful fallback
 try:
@@ -34,6 +39,9 @@ try:
             pass
         logger.info("Successfully connected to the primary PostgreSQL database.")
 except Exception as e:
+    if IS_PRODUCTION:
+        logger.error(f"Could not connect to the production database: {e}")
+        raise
     if not SQLALCHEMY_DATABASE_URL.startswith("sqlite"):
         logger.warning(
             f"Could not connect to PostgreSQL ({SQLALCHEMY_DATABASE_URL}). "

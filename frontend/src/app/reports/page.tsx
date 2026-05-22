@@ -6,6 +6,7 @@ import { useDormitoryData } from "@/lib/useDormitoryData";
 import { useGarageData } from "@/lib/useGarageData";
 import { useHouseData } from "@/lib/useHouseData";
 import { useTransactionData } from "@/lib/useTransactionData";
+import { authFetch } from "@/lib/api";
 
 interface UtilityMonthItem {
   month: string;
@@ -53,7 +54,7 @@ export default function ReportsPage() {
     const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     
     // Fetch overall monthly financial summary
-    fetch(`${API_BASE}/transactions/monthly-summary`)
+    authFetch(`${API_BASE}/transactions/monthly-summary`)
       .then((r) => r.json())
       .then((data) => {
         if (Array.isArray(data)) {
@@ -63,7 +64,7 @@ export default function ReportsPage() {
       .catch((err) => console.error("Error loading monthly summary on reports:", err));
 
     // Fetch water & electricity margin analysis
-    fetch(`${API_BASE}/transactions/utility-analytics/`)
+    authFetch(`${API_BASE}/transactions/utility-analytics/`)
       .then((r) => r.json())
       .then((data) => {
         if (data && data.water && data.electricity) {

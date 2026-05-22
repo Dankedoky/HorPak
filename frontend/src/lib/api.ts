@@ -1,5 +1,23 @@
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+export async function authFetch(input: RequestInfo | URL, init: RequestInit = {}) {
+  const headers = new Headers(init.headers);
+  const token = typeof window !== "undefined" ? localStorage.getItem("auth_token") : null;
+
+  if (token) {
+    headers.set("Authorization", `Bearer ${token}`);
+  }
+
+  const response = await fetch(input, { ...init, headers });
+
+  if (response.status === 401 && typeof window !== "undefined") {
+    localStorage.removeItem("auth_token");
+    window.location.href = "/login";
+  }
+
+  return response;
+}
+
 // ==========================================
 // Data Mappers (snake_case <-> camelCase)
 // ==========================================
@@ -129,17 +147,17 @@ export function mapRentalHouseToServer(h: Record<string, unknown>) {
 // ==========================================
 
 export async function fetchUnits() {
-  const res = await fetch(`${API_BASE_URL}/units/`);
+  const res = await authFetch(`${API_BASE_URL}/units/`);
   return res.json();
 }
 
 export async function fetchCustomers() {
-  const res = await fetch(`${API_BASE_URL}/customers/`);
+  const res = await authFetch(`${API_BASE_URL}/customers/`);
   return res.json();
 }
 
 export async function createCustomer(customer: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE_URL}/customers/`, {
+  const res = await authFetch(`${API_BASE_URL}/customers/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(customer),
@@ -148,7 +166,7 @@ export async function createCustomer(customer: Record<string, unknown>) {
 }
 
 export async function updateCustomer(customerId: number | string, customer: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE_URL}/customers/${customerId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/customers/${customerId}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(customer),
@@ -157,19 +175,19 @@ export async function updateCustomer(customerId: number | string, customer: Reco
 }
 
 export async function deleteCustomer(customerId: number | string) {
-  const res = await fetch(`${API_BASE_URL}/customers/${customerId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/customers/${customerId}/`, {
     method: 'DELETE',
   });
   return res.json();
 }
 
 export async function fetchInvoices() {
-  const res = await fetch(`${API_BASE_URL}/invoices/`);
+  const res = await authFetch(`${API_BASE_URL}/invoices/`);
   return res.json();
 }
 
 export async function createInvoice(invoice: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE_URL}/invoices/`, {
+  const res = await authFetch(`${API_BASE_URL}/invoices/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(invoice),
@@ -178,7 +196,7 @@ export async function createInvoice(invoice: Record<string, unknown>) {
 }
 
 export async function updateInvoiceStatus(invoiceId: number, status: string) {
-  const res = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/status?status=${status}`, {
+  const res = await authFetch(`${API_BASE_URL}/invoices/${invoiceId}/status?status=${status}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' }
   });
@@ -186,7 +204,7 @@ export async function updateInvoiceStatus(invoiceId: number, status: string) {
 }
 
 export async function updateInvoice(invoiceId: number, invoice: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/invoices/${invoiceId}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(invoice),
@@ -195,24 +213,24 @@ export async function updateInvoice(invoiceId: number, invoice: Record<string, u
 }
 
 export async function deleteInvoice(invoiceId: number) {
-  const res = await fetch(`${API_BASE_URL}/invoices/${invoiceId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/invoices/${invoiceId}/`, {
     method: 'DELETE',
   });
   return res.json();
 }
 
 export async function fetchTransactions() {
-  const res = await fetch(`${API_BASE_URL}/transactions/`);
+  const res = await authFetch(`${API_BASE_URL}/transactions/`);
   return res.json();
 }
 
 export async function fetchTransactionSummary() {
-  const res = await fetch(`${API_BASE_URL}/transactions/summary`);
+  const res = await authFetch(`${API_BASE_URL}/transactions/summary`);
   return res.json();
 }
 
 export async function createTransaction(transaction: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE_URL}/transactions/`, {
+  const res = await authFetch(`${API_BASE_URL}/transactions/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(transaction),
@@ -221,7 +239,7 @@ export async function createTransaction(transaction: Record<string, unknown>) {
 }
 
 export async function updateTransaction(transactionId: number, transaction: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE_URL}/transactions/${transactionId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/transactions/${transactionId}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(transaction),
@@ -230,7 +248,7 @@ export async function updateTransaction(transactionId: number, transaction: Reco
 }
 
 export async function deleteTransaction(transactionId: number) {
-  const res = await fetch(`${API_BASE_URL}/transactions/${transactionId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/transactions/${transactionId}/`, {
     method: 'DELETE',
   });
   return res.json();
@@ -238,7 +256,7 @@ export async function deleteTransaction(transactionId: number) {
 
 // Dormitory APIs
 export async function fetchDormRooms() {
-  const res = await fetch(`${API_BASE_URL}/rooms/`);
+  const res = await authFetch(`${API_BASE_URL}/rooms/`);
   const data = await res.json();
   if (Array.isArray(data)) {
     return data.map(mapDormRoomToClient);
@@ -248,7 +266,7 @@ export async function fetchDormRooms() {
 
 export async function updateDormRoom(dormKey: string, number: string, room: Record<string, unknown>) {
   const serverPayload = mapDormRoomToServer(room);
-  const res = await fetch(`${API_BASE_URL}/rooms/${dormKey}/${number}/`, {
+  const res = await authFetch(`${API_BASE_URL}/rooms/${dormKey}/${number}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(serverPayload),
@@ -258,7 +276,7 @@ export async function updateDormRoom(dormKey: string, number: string, room: Reco
 }
 
 export async function rolloverDormRooms() {
-  const res = await fetch(`${API_BASE_URL}/rooms/rollover/`, {
+  const res = await authFetch(`${API_BASE_URL}/rooms/rollover/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -266,7 +284,7 @@ export async function rolloverDormRooms() {
 }
 
 export async function resetDormRooms() {
-  const res = await fetch(`${API_BASE_URL}/rooms/reset/`, {
+  const res = await authFetch(`${API_BASE_URL}/rooms/reset/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
   });
@@ -275,7 +293,7 @@ export async function resetDormRooms() {
 
 // Garage APIs
 export async function fetchGarageJobs() {
-  const res = await fetch(`${API_BASE_URL}/garage/jobs/`);
+  const res = await authFetch(`${API_BASE_URL}/garage/jobs/`);
   const data = await res.json();
   if (Array.isArray(data)) {
     return data.map(mapGarageJobToClient);
@@ -285,7 +303,7 @@ export async function fetchGarageJobs() {
 
 export async function createGarageJob(job: Record<string, unknown>) {
   const serverPayload = mapGarageJobToServer(job);
-  const res = await fetch(`${API_BASE_URL}/garage/jobs/`, {
+  const res = await authFetch(`${API_BASE_URL}/garage/jobs/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(serverPayload),
@@ -296,7 +314,7 @@ export async function createGarageJob(job: Record<string, unknown>) {
 
 export async function updateGarageJob(jobId: number, job: Record<string, unknown>) {
   const serverPayload = mapGarageJobToServer(job);
-  const res = await fetch(`${API_BASE_URL}/garage/jobs/${jobId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/garage/jobs/${jobId}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(serverPayload),
@@ -306,7 +324,7 @@ export async function updateGarageJob(jobId: number, job: Record<string, unknown
 }
 
 export async function deleteGarageJob(jobId: number) {
-  const res = await fetch(`${API_BASE_URL}/garage/jobs/${jobId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/garage/jobs/${jobId}/`, {
     method: 'DELETE',
   });
   return res.json();
@@ -314,7 +332,7 @@ export async function deleteGarageJob(jobId: number) {
 
 // House APIs
 export async function fetchRentalHouses() {
-  const res = await fetch(`${API_BASE_URL}/houses/`);
+  const res = await authFetch(`${API_BASE_URL}/houses/`);
   const data = await res.json();
   if (Array.isArray(data)) {
     return data.map(mapRentalHouseToClient);
@@ -324,7 +342,7 @@ export async function fetchRentalHouses() {
 
 export async function updateRentalHouse(houseId: string, house: Record<string, unknown>) {
   const serverPayload = mapRentalHouseToServer(house);
-  const res = await fetch(`${API_BASE_URL}/houses/${houseId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/houses/${houseId}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(serverPayload),
@@ -338,7 +356,7 @@ export async function createRentalHouse(house: Record<string, unknown>) {
     id: house.id,
     ...mapRentalHouseToServer(house)
   };
-  const res = await fetch(`${API_BASE_URL}/houses/`, {
+  const res = await authFetch(`${API_BASE_URL}/houses/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(serverPayload),
@@ -352,7 +370,7 @@ export async function createRentalHouse(house: Record<string, unknown>) {
 }
 
 export async function deleteRentalHouse(houseId: string) {
-  const res = await fetch(`${API_BASE_URL}/houses/${houseId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/houses/${houseId}/`, {
     method: 'DELETE',
   });
   if (!res.ok) {
@@ -363,34 +381,34 @@ export async function deleteRentalHouse(houseId: string) {
 }
 
 export async function fetchHousePayments(houseId: string) {
-  const res = await fetch(`${API_BASE_URL}/houses/${houseId}/payments/`);
+  const res = await authFetch(`${API_BASE_URL}/houses/${houseId}/payments/`);
   return res.json();
 }
 
 export async function fetchRoomPayments(roomId: number) {
-  const res = await fetch(`${API_BASE_URL}/dorm-rooms/${roomId}/payments/`);
+  const res = await authFetch(`${API_BASE_URL}/dorm-rooms/${roomId}/payments/`);
   return res.json();
 }
 
 export async function verifyPaymentSlip(type: string, targetId: string) {
-  const res = await fetch(`${API_BASE_URL}/payment/verify-slip/?type=${type}&target_id=${targetId}`, {
+  const res = await authFetch(`${API_BASE_URL}/payment/verify-slip/?type=${type}&target_id=${targetId}`, {
     method: 'POST'
   });
   return res.json();
 }
 
 export async function fetchExpiringLeases() {
-  const res = await fetch(`${API_BASE_URL}/leases/expiring/`);
+  const res = await authFetch(`${API_BASE_URL}/leases/expiring/`);
   return res.json();
 }
 
 export async function fetchBusinessUnits() {
-  const res = await fetch(`${API_BASE_URL}/business-units/`);
+  const res = await authFetch(`${API_BASE_URL}/business-units/`);
   return res.json();
 }
 
 export async function createBusinessUnit(unit: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE_URL}/business-units/`, {
+  const res = await authFetch(`${API_BASE_URL}/business-units/`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(unit),
@@ -399,7 +417,7 @@ export async function createBusinessUnit(unit: Record<string, unknown>) {
 }
 
 export async function updateBusinessUnit(unitId: number, unit: Record<string, unknown>) {
-  const res = await fetch(`${API_BASE_URL}/business-units/${unitId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/business-units/${unitId}/`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(unit),
@@ -408,7 +426,7 @@ export async function updateBusinessUnit(unitId: number, unit: Record<string, un
 }
 
 export async function deleteBusinessUnit(unitId: number) {
-  const res = await fetch(`${API_BASE_URL}/business-units/${unitId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/business-units/${unitId}/`, {
     method: 'DELETE',
   });
   return res.json();
@@ -416,12 +434,12 @@ export async function deleteBusinessUnit(unitId: number) {
 
 // Maintenance Tickets APIs
 export async function fetchMaintenanceTickets() {
-  const res = await fetch(`${API_BASE_URL}/maintenance-tickets/`);
+  const res = await authFetch(`${API_BASE_URL}/maintenance-tickets/`);
   return res.json();
 }
 
 export async function updateMaintenanceTicketStatus(ticketId: number, status: string) {
-  const res = await fetch(`${API_BASE_URL}/maintenance-tickets/${ticketId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/maintenance-tickets/${ticketId}/`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ status }),
@@ -430,7 +448,7 @@ export async function updateMaintenanceTicketStatus(ticketId: number, status: st
 }
 
 export async function deleteMaintenanceTicket(ticketId: number) {
-  const res = await fetch(`${API_BASE_URL}/maintenance-tickets/${ticketId}/`, {
+  const res = await authFetch(`${API_BASE_URL}/maintenance-tickets/${ticketId}/`, {
     method: 'DELETE',
   });
   if (!res.ok) {
@@ -439,4 +457,5 @@ export async function deleteMaintenanceTicket(ticketId: number) {
   }
   return res.json();
 }
+
 

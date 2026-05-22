@@ -1,5 +1,20 @@
 # Activity Log
 
+## [2026-05-22] Zero-Trust Backend Security Gateway & Premium A4 Landscape PDF Printing (Approve & Execution Complete)
+- **Zero-Trust Administrative API Gateway:**
+  - *FastAPI Endpoint Locks:* Configured a global `require_admin_token` HTTP middleware in `backend/main.py` that parses `Authorization: Bearer <auth_token>` headers and validates them using centralized JWT claims verification, locking down all admin reading and writing paths (except for `/`, `/auth/login`, `/webhook`, `/docs`, `/openapi.json`).
+  - *Hardened Database Fallback:* Injected strict checks in `backend/database.py` that throw a `RuntimeError` immediately if the system is running in production and attempts to use local SQLite instead of Supabase/Postgres. Removed code-embedded default secret fallbacks from `backend/auth.py`.
+  - *Frontend Auto-Auth Fetcher:* Deployed a centralized `authFetch` handler in `frontend/src/lib/api.ts` which captures token state, attaches the auth headers to every outgoing call automatically, and performs graceful redirections to `/login` when token expiration/401 is encountered.
+- **Premium A4 Landscape PDF Printing:**
+  - *Chromium Rotation Overflow Fix:* Restructured the layout and width ratios of the summary table rows in `dormitory/page.tsx` to add up to exactly 100% (eliminating column overflow). This permanently resolved the browser orientation bug that forced 90-degree table rotation when printing.
+  - *Enterprise PDF Reader Style Print Preview:* Upgraded the report printing UI to mock a realistic light-gray workspace `#f1f5f9` framing a clean A4 card page complete with custom shadows and margins.
+  - *Dark Mode Control Toolbar:* Built a metallic-black navigation toolbar featuring Thai printing guidelines, direct landscape printer advice, and a trigger button which is dynamically hidden during hardware prints via `.no-print` classes.
+- **Offline Build Resilience & Native System Font Stacks:**
+  - *Offline-Safe Compilation:* Resolved Next.js build issues caused by the container failing to download Google Fonts online. Swapped `next/font/google` imports inside `layout.tsx` for high-fidelity native system font stacks defined under `:root` in `globals.css` (Inter, Segoe UI, Roboto system fallbacks).
+- **Verification:**
+  - *Backend Compilation:* Verified that all Python backend modules compile cleanly via `python -m py_compile backend/main.py`.
+  - *Frontend Turbopack Production Build:* Ran `npm run build` with 100% success rate and zero typescript errors.
+
 ## [2026-05-22] Premium LINE Flex Message Billing Upgrade (Approve & Execution Complete)
 - **Premium LINE Flex Message Billing Upgrade:**
   - *Dorm Bill (บิลหลักรายเดือน):* Upgraded the bulk billing reminders dispatcher (`send_billing_reminder` endpoint in `backend/main.py`) to construct and push beautiful, modern graphic Flex Messages with custom navy, gold, and white styling (`#1A365D`), including utility meter ranges and a dynamic `"📸 แจ้งโอนเงิน"` action button.

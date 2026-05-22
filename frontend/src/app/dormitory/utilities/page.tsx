@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useEffect, useMemo } from "react";
+import { authFetch } from "@/lib/api";
 
 // Interfaces matching API response schemas.py
 interface SpreadsheetRoom {
@@ -34,6 +35,14 @@ interface UtilityTrend {
   electricity_units: number;
   electricity_cost: number;
 }
+
+type DormType = "26_20" | "26_577" | "73_17";
+
+const DORM_NAMES: Record<DormType, string> = {
+  "26_20": "หอพัก 26/20",
+  "26_577": "หอพัก 26/577",
+  "73_17": "หอพัก 73/17",
+};
 
 // Custom Helpers
 function formatMoney(value: number) {
@@ -77,6 +86,7 @@ export default function UtilitiesSpreadsheetPage() {
   // Selection states
   const [selectedMonth, setSelectedMonth] = useState<string>("");
   const [monthsList, setMonthsList] = useState<string[]>([]);
+  const [selectedDorm, setSelectedDorm] = useState<DormType>("26_20");
 
   // Data states
   const [roomsData, setRoomsData] = useState<SpreadsheetRoom[]>([]);
@@ -125,7 +135,7 @@ export default function UtilitiesSpreadsheetPage() {
     setIsLoading(true);
     setErrorMsg("");
     
-    fetch(`${API_BASE}/rooms/spreadsheet/${selectedMonth}/`)
+    authFetch(`${API_BASE}/rooms/spreadsheet/${selectedMonth}/`)
       .then((res) => {
         if (!res.ok) throw new Error("ไม่สามารถเชื่อมต่อดึงข้อมูล API ได้");
         return res.json();
@@ -145,7 +155,7 @@ export default function UtilitiesSpreadsheetPage() {
   useEffect(() => {
     if (activeTab !== "trends") return;
     setIsTrendsLoading(true);
-    fetch(`${API_BASE}/rooms/utility-history-trends/`)
+    authFetch(`${API_BASE}/rooms/utility-history-trends/`)
       .then((res) => {
         if (!res.ok) throw new Error("ไม่สามารถดึงข้อมูลแนวโน้มได้");
         return res.json();
@@ -160,10 +170,15 @@ export default function UtilitiesSpreadsheetPage() {
       });
   }, [activeTab, API_BASE]);
 
+  // Filtered rooms data based on selected Dormitory
+  const filteredRooms = useMemo(() => {
+    return roomsData.filter((r) => r.dorm_key === selectedDorm);
+  }, [roomsData, selectedDorm]);
+
   // Group rooms data by floors (Excel style grouped row display)
   const groupedRooms = useMemo(() => {
     const groups: { [key: number]: SpreadsheetRoom[] } = {};
-    roomsData.forEach((room) => {
+    filteredRooms.forEach((room) => {
       if (!groups[room.floor]) {
         groups[room.floor] = [];
       }
@@ -177,9 +192,9 @@ export default function UtilitiesSpreadsheetPage() {
         floor,
         rooms: groups[floor].sort((a, b) => a.number.localeCompare(b.number))
       }));
-  }, [roomsData]);
+  }, [filteredRooms]);
 
-  // Grand Totals calculator
+  // Grand Totals calculator for the selected dormitory
   const grandTotals = useMemo(() => {
     let rateSum = 0;
     let waterUnitsSum = 0;
@@ -191,7 +206,7 @@ export default function UtilitiesSpreadsheetPage() {
     let totalSum = 0;
     let pendingSum = 0;
 
-    roomsData.forEach((r) => {
+    filteredRooms.forEach((r) => {
       const waterUnits = Math.max(0, r.water_meter - r.water_meter_prev);
       const elecUnits = Math.max(0, r.electricity_meter - r.electricity_meter_prev);
       
@@ -222,7 +237,7 @@ export default function UtilitiesSpreadsheetPage() {
       totalSum,
       pendingSum
     };
-  }, [roomsData]);
+  }, [filteredRooms]);
 
   // Handle click on row to quick edit
   const handleOpenEdit = (room: SpreadsheetRoom) => {
@@ -270,7 +285,7 @@ export default function UtilitiesSpreadsheetPage() {
       payment_status: formStatus
     };
 
-    fetch(`${API_BASE}/rooms/spreadsheet/${selectedMonth}/${editingRoom.room_id}/`, {
+    authFetch(`${API_BASE}/rooms/spreadsheet/${selectedMonth}/${editingRoom.room_id}/`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json"
@@ -364,6 +379,27 @@ export default function UtilitiesSpreadsheetPage() {
         </div>
       </div>
 
+      {/* Dormitory Switch Selector Tabs (Premium Pastel Segmented UI) */}
+      <div className="bg-white p-2 rounded-2xl border border-slate-100 shadow-sm flex flex-wrap gap-1.5">
+        {(Object.keys(DORM_NAMES) as DormType[]).map((dormKey) => {
+          const isActive = selectedDorm === dormKey;
+          return (
+            <button
+              key={dormKey}
+              onClick={() => setSelectedDorm(dormKey)}
+              className={`flex-1 min-w-[120px] py-3 px-4 rounded-xl text-xs font-black tracking-wider transition-all duration-200 flex items-center justify-center gap-2.5 border ${
+                isActive
+                  ? "bg-teal-50 text-teal-700 border-teal-200/60 shadow-inner scale-[0.98]"
+                  : "bg-white text-slate-500 hover:text-slate-800 hover:bg-slate-50 border-transparent"
+              }`}
+            >
+              <span className="text-base">🏢</span>
+              <span>{DORM_NAMES[dormKey]}</span>
+            </button>
+          );
+        })}
+      </div>
+
       {/* Tabs Menu Navigation */}
       <div className="flex border-b border-slate-200">
         <button
@@ -374,7 +410,7 @@ export default function UtilitiesSpreadsheetPage() {
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
-          <span>🧾</span> Spreadsheet บันทึกค่าน้ำ-ไฟรายเดือน
+          <span>🧾</span> Spreadsheet บันทึกค่าน้ำ-ไฟ ({DORM_NAMES[selectedDorm]})
         </button>
         <button
           onClick={() => setActiveTab("trends")}
@@ -384,7 +420,7 @@ export default function UtilitiesSpreadsheetPage() {
               : "border-transparent text-slate-500 hover:text-slate-800"
           }`}
         >
-          <span>📈</span> รายงานวิเคราะห์แนวโน้มการใช้งาน (12 เดือน)
+          <span>📈</span> รายงานวิเคราะห์แนวโน้มสะสมภาพรวมทั้งหมด
         </button>
       </div>
 
@@ -448,8 +484,8 @@ export default function UtilitiesSpreadsheetPage() {
           {/* Quick Metrics Cards */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.01)]">
-              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                รายรับคาดหวังรวมของเดือน
+              <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-slate-600">
+                รายรับคาดหวังรวมของหอ
               </span>
               <div className="text-xl font-black text-slate-800 tracking-tight mt-1">
                 {formatMoney(grandTotals.totalSum)} ฿
@@ -457,7 +493,7 @@ export default function UtilitiesSpreadsheetPage() {
             </div>
             <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.01)]">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-amber-600">
-                ยอดค้างชำระรวมสะสม
+                ยอดค้างชำระหอสะสม
               </span>
               <div className="text-xl font-black text-amber-600 tracking-tight mt-1">
                 {formatMoney(grandTotals.pendingSum)} ฿
@@ -465,7 +501,7 @@ export default function UtilitiesSpreadsheetPage() {
             </div>
             <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.01)]">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-amber-500">
-                ปริมาณหน่วยไฟฟ้าที่ใช้รวม
+                ไฟฟ้าที่ใช้รวม (หอนี้)
               </span>
               <div className="text-xl font-black text-amber-500 tracking-tight mt-1 flex items-baseline gap-1">
                 {grandTotals.elecUnitsSum.toLocaleString("th-TH", { maximumFractionDigits: 1 })}{" "}
@@ -474,7 +510,7 @@ export default function UtilitiesSpreadsheetPage() {
             </div>
             <div className="bg-white rounded-3xl p-5 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.01)]">
               <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider text-sky-500">
-                ปริมาณหน่วยประปาที่ใช้รวม
+                ประปาที่ใช้รวม (หอนี้)
               </span>
               <div className="text-xl font-black text-sky-500 tracking-tight mt-1 flex items-baseline gap-1">
                 {grandTotals.waterUnitsSum.toLocaleString("th-TH", { maximumFractionDigits: 1 })}{" "}
@@ -490,6 +526,10 @@ export default function UtilitiesSpreadsheetPage() {
               <p className="text-slate-500 text-sm font-semibold tracking-wide">
                 กำลังประกอบร่างและเชื่อมต่อตารางกริดน้ำ-ไฟ...
               </p>
+            </div>
+          ) : filteredRooms.length === 0 ? (
+            <div className="bg-white rounded-3xl p-16 text-center border border-slate-100 shadow-sm text-slate-400 font-bold">
+              🚫 ไม่พบห้องพักที่ลงทะเบียนไว้ภายใต้ {DORM_NAMES[selectedDorm]} ในรอบบิลนี้
             </div>
           ) : (
             <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
@@ -711,7 +751,7 @@ export default function UtilitiesSpreadsheetPage() {
                     {/* GRAND TOTALS ROW */}
                     <tr className="bg-slate-900 text-white font-black text-[12px] uppercase tracking-wider">
                       <td colSpan={3} className="py-4 px-4 text-right tracking-widest text-slate-300">
-                        ⭐ ผลรวมตารางน้ำ-ไฟทั้งอาคาร (GRAND TOTALS):
+                        ⭐ รวมสะสมเฉพาะ {DORM_NAMES[selectedDorm]} (GRAND TOTALS):
                       </td>
                       <td className="py-4 px-3 text-right text-emerald-300 bg-slate-800/80">
                         {formatMoney(grandTotals.rateSum)} ฿
@@ -769,10 +809,10 @@ export default function UtilitiesSpreadsheetPage() {
               <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-sm space-y-6">
                 <div>
                   <h2 className="text-base font-extrabold text-slate-800 flex items-center gap-2">
-                    <span>📈</span> กราฟวิเคราะห์แนวโน้มหน่วยการใช้น้ำและไฟย้อนหลัง (12 เดือน)
+                    <span>📈</span> กราฟวิเคราะห์แนวโน้มหน่วยการใช้น้ำและไฟรวมทุกหอพักในเครือย้อนหลัง (12 เดือน)
                   </h2>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    วิเคราะห์ความต้องการพลังงานและทรัพยากรของหอพัก เพื่อป้องกันจุดชำรุดส่วนกลาง
+                    วิเคราะห์ความต้องการพลังงานและทรัพยากรสะสมของธุรกิจทั้งหมด เพื่อประเมินผลประสิทธิภาพภาพรวมการเงิน
                   </p>
                 </div>
 
@@ -980,11 +1020,11 @@ export default function UtilitiesSpreadsheetPage() {
                 <div className="flex justify-center gap-8 mt-2 text-xs font-black text-slate-500">
                   <span className="flex items-center gap-2">
                     <span className="w-4 h-1 bg-amber-500 rounded inline-block"></span>
-                    ⚡ อัตราไฟฟ้าที่ใช้รวม (หน่วย)
+                    ⚡ อัตราไฟฟ้าที่ใช้รวมสะสม (หน่วย)
                   </span>
                   <span className="flex items-center gap-2">
                     <span className="w-4 h-1 bg-sky-500 rounded inline-block"></span>
-                    💧 อัตราประปาที่ใช้รวม (หน่วย)
+                    💧 อัตราประปาที่ใช้รวมสะสม (หน่วย)
                   </span>
                 </div>
               </div>
@@ -993,7 +1033,7 @@ export default function UtilitiesSpreadsheetPage() {
               <div className="bg-white rounded-3xl border border-slate-100 shadow-sm overflow-hidden">
                 <div className="p-5 border-b border-slate-100">
                   <h3 className="text-sm font-extrabold text-slate-800">
-                    ตารางรายละเอียดข้อมูลสรุปหน่วยน้ำไฟ ย้อนหลังรายเดือน
+                    ตารางรายละเอียดข้อมูลสรุปหน่วยน้ำไฟ ย้อนหลังรายเดือนภาพรวมสะสม
                   </h3>
                 </div>
                 <div className="overflow-x-auto">
@@ -1060,7 +1100,7 @@ export default function UtilitiesSpreadsheetPage() {
                   Quick Editor / บันทึกข้อมูลด่วน
                 </span>
                 <h3 className="text-lg font-black text-slate-800 mt-1">
-                  ห้องพัก {editingRoom.number} — รอบบิล {formatMonthThaiShort(selectedMonth)}
+                  ห้องพัก {editingRoom.number} ({DORM_NAMES[editingRoom.dorm_key as DormType]}) — รอบบิล {formatMonthThaiShort(selectedMonth)}
                 </h3>
               </div>
               <button

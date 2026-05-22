@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useDormitoryData } from "@/lib/useDormitoryData";
 import { useGarageData } from "@/lib/useGarageData";
 import { useHouseData } from "@/lib/useHouseData";
-import { fetchExpiringLeases } from "@/lib/api";
+import { authFetch, fetchExpiringLeases } from "@/lib/api";
 
 // --- Donut Chart ---
 const DonutChart = ({ data, hole = 26 }: { data: { label: string; value: number; color: string }[]; hole?: number }) => {
@@ -739,7 +739,7 @@ function MonthlyChart() {
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   useEffect(() => {
-    fetch(`${API_BASE}/transactions/monthly-summary`)
+    authFetch(`${API_BASE}/transactions/monthly-summary`)
       .then(r => r.json())
       .then(setData)
       .catch(() => {});
@@ -747,7 +747,7 @@ function MonthlyChart() {
 
   const checkBilling = async () => {
     try {
-      const res = await fetch(`${API_BASE}/notify/billing-reminder`, { method: "POST" });
+      const res = await authFetch(`${API_BASE}/notify/billing-reminder`, { method: "POST" });
       const result = await res.json();
       setBillingResult(result);
       setShowBilling(true);
@@ -761,7 +761,7 @@ function MonthlyChart() {
     }
     setSendingLine(true);
     try {
-      const res = await fetch(`${API_BASE}/notify/billing-reminder?send_line=true`, { method: "POST" });
+      const res = await authFetch(`${API_BASE}/notify/billing-reminder?send_line=true`, { method: "POST" });
       const result = await res.json();
       setBillingResult(result);
       alert(`🎉 ดำเนินการส่งแจ้งบิลเข้า LINE OA สำเร็จ!\n\n• ส่งสำเร็จ: ${result.line_push_success} ห้อง\n• ส่งล้มเหลว/ไม่มี LINE ID: ${result.line_push_failed} ห้อง`);

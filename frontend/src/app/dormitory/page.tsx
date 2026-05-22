@@ -325,73 +325,156 @@ export default function DormitoryPage() {
           <title>รายงานสรุปประจำเดือน - ${dormName}</title>
           <link rel="preconnect" href="https://fonts.googleapis.com">
           <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-          <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+          <link href="https://fonts.googleapis.com/css2?family=Prompt:wght@300;400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
           <style>
-            @media print {
-              @page {
-                size: landscape;
-                margin: 10mm;
-              }
-              body {
-                padding: 0 !important;
-                background-color: #ffffff !important;
-              }
-            }
+            /* Reset & Typography */
             body {
-              font-family: 'Prompt', sans-serif;
+              font-family: 'Prompt', 'Inter', sans-serif;
               color: #1e293b;
-              background-color: #ffffff;
-              padding: 30px;
+              background-color: #f1f5f9; /* Sleek enterprise PDF reader background */
               margin: 0;
+              padding: 0;
+              min-height: 100vh;
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
             }
-            .report-container {
-              width: 100%;
-              max-width: 1100px;
-              margin: 0 auto;
+
+            /* Sleek Dark Mode Toolbar */
+            .print-toolbar {
+              background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+              color: #f8fafc;
+              padding: 14px 28px;
+              display: flex;
+              justify-content: space-between;
+              align-items: center;
+              position: sticky;
+              top: 0;
+              z-index: 10000;
+              box-shadow: 0 4px 15px rgba(0, 0, 0, 0.15);
+              border-bottom: 1px solid #334155;
+              font-family: 'Prompt', sans-serif;
             }
+            .toolbar-title {
+              font-size: 15px;
+              font-weight: 700;
+              display: flex;
+              align-items: center;
+              gap: 8px;
+              color: #38bdf8; /* vibrant sky blue */
+            }
+            .toolbar-actions {
+              display: flex;
+              align-items: center;
+              gap: 16px;
+            }
+            .instruction-badge {
+              font-size: 12px;
+              background-color: #1e3a8a;
+              border: 1px solid #2563eb;
+              color: #bfdbfe;
+              padding: 8px 14px;
+              border-radius: 8px;
+              font-weight: 500;
+              line-height: 1.4;
+              box-shadow: inset 0 1px 2px rgba(255,255,255,0.1);
+              max-width: 550px;
+              text-align: left;
+            }
+            .btn-print {
+              background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+              color: #ffffff;
+              border: none;
+              padding: 10px 20px;
+              border-radius: 8px;
+              font-size: 13px;
+              font-weight: 700;
+              cursor: pointer;
+              transition: all 0.2s ease;
+              box-shadow: 0 2px 4px rgba(37, 99, 235, 0.2);
+              display: flex;
+              align-items: center;
+              gap: 6px;
+              font-family: 'Prompt', sans-serif;
+            }
+            .btn-print:hover {
+              background: linear-gradient(135deg, #1d4ed8 0%, #1e40af 100%);
+              transform: translateY(-1px);
+              box-shadow: 0 4px 6px rgba(37, 99, 235, 0.3);
+            }
+            .btn-close {
+              background: linear-gradient(135deg, #475569 0%, #334155 100%);
+              color: #ffffff;
+              border: none;
+              padding: 10px 20px;
+              border-radius: 8px;
+              font-size: 13px;
+              font-weight: 700;
+              cursor: pointer;
+              transition: all 0.2s ease;
+              font-family: 'Prompt', sans-serif;
+            }
+            .btn-close:hover {
+              background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+              transform: translateY(-1px);
+            }
+
+            /* Report A4 Sheet Container */
+            .report-container {
+              width: 297mm; /* Standard A4 width in landscape */
+              max-width: 1040px; /* Safe bounds to display perfectly on screen */
+              margin: 40px auto;
+              background-color: #ffffff;
+              padding: 40px;
+              border-radius: 12px;
+              box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04);
+              border: 1px solid #e2e8f0;
+              box-sizing: border-box;
+              transition: transform 0.3s ease;
+            }
+
             .header {
               display: flex;
               justify-content: space-between;
               align-items: flex-end;
-              border-bottom: 3px solid #1d4ed8;
-              padding-bottom: 12px;
-              margin-bottom: 20px;
+              border-bottom: 3px solid #1e40af;
+              padding-bottom: 14px;
+              margin-bottom: 24px;
             }
             .title-area h1 {
-              font-size: 20px;
+              font-size: 22px;
               font-weight: 800;
               color: #1e3a8a;
-              margin: 0 0 4px 0;
+              margin: 0 0 6px 0;
+              letter-spacing: -0.5px;
             }
             .title-area p {
-              font-size: 11px;
-              color: #64748b;
+              font-size: 12px;
+              color: #475569;
               margin: 0;
-              font-weight: bold;
+              font-weight: 600;
             }
             .date-badge {
-              font-size: 11px;
+              font-size: 12px;
               font-weight: 700;
               background-color: #eff6ff;
               color: #1d4ed8;
-              padding: 6px 12px;
+              padding: 8px 16px;
               border-radius: 8px;
               border: 1px solid #bfdbfe;
             }
             .stats-grid {
               display: grid;
               grid-template-cols: repeat(6, 1fr);
-              gap: 12px;
-              margin-bottom: 20px;
+              gap: 14px;
+              margin-bottom: 24px;
             }
             .stat-card {
               background-color: #f8fafc;
               border: 1px solid #e2e8f0;
               border-radius: 10px;
-              padding: 10px;
+              padding: 12px;
               text-align: center;
+              box-shadow: 0 1px 2px rgba(0,0,0,0.02);
             }
             .stat-card.blue {
               background-color: #eff6ff;
@@ -406,18 +489,19 @@ export default function DormitoryPage() {
               border-color: #fecdd3;
             }
             .stat-label {
-              font-size: 9px;
+              font-size: 9.5px;
               color: #64748b;
-              font-weight: bold;
+              font-weight: 700;
               text-transform: uppercase;
-              margin-bottom: 2px;
+              margin-bottom: 4px;
+              letter-spacing: 0.5px;
             }
             .stat-card.blue .stat-label { color: #1d4ed8; }
             .stat-card.emerald .stat-label { color: #047857; }
             .stat-card.rose .stat-label { color: #be123c; }
 
             .stat-value {
-              font-size: 14px;
+              font-size: 15px;
               font-weight: 800;
               color: #0f172a;
             }
@@ -428,20 +512,20 @@ export default function DormitoryPage() {
             .table {
               width: 100%;
               border-collapse: collapse;
-              margin-bottom: 25px;
-              font-size: 11px;
+              margin-bottom: 30px;
+              font-size: 11.5px;
             }
             .table th {
               background-color: #f1f5f9;
               border: 1px solid #cbd5e1;
               color: #334155;
               font-weight: 700;
-              padding: 8px 4px;
+              padding: 10px 4px;
               text-align: center;
             }
             .table td {
               border: 1px solid #cbd5e1;
-              padding: 6px 4px;
+              padding: 8px 4px;
               text-align: center;
               font-weight: 500;
             }
@@ -453,10 +537,10 @@ export default function DormitoryPage() {
               color: #94a3b8;
             }
             .badge {
-              font-size: 9px;
+              font-size: 9.5px;
               font-weight: 800;
-              padding: 2px 6px;
-              border-radius: 4px;
+              padding: 3px 8px;
+              border-radius: 6px;
               text-transform: uppercase;
               display: inline-block;
             }
@@ -478,21 +562,87 @@ export default function DormitoryPage() {
             .signature-section {
               display: flex;
               justify-content: space-between;
-              margin-top: 40px;
-              font-size: 11px;
+              margin-top: 50px;
+              font-size: 11.5px;
             }
             .signature-box {
-              width: 220px;
+              width: 240px;
               text-align: center;
             }
             .signature-line {
               border-bottom: 1px solid #94a3b8;
-              height: 40px;
-              margin-bottom: 8px;
+              height: 50px;
+              margin-bottom: 10px;
+            }
+
+            /* Print-Specific Styles */
+            @media print {
+              @page {
+                size: A4 landscape;
+                margin: 10mm;
+              }
+              .no-print {
+                display: none !important;
+              }
+              body {
+                background-color: #ffffff !important;
+                padding: 0 !important;
+                margin: 0 !important;
+              }
+              .report-container {
+                width: 100% !important;
+                max-width: 100% !important;
+                margin: 0 !important;
+                padding: 0 !important;
+                border: none !important;
+                box-shadow: none !important;
+                border-radius: 0 !important;
+              }
+              .table th {
+                background-color: #f1f5f9 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .badge.paid {
+                background-color: #d1fae5 !important;
+                color: #065f46 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .badge.pending {
+                background-color: #fee2e2 !important;
+                color: #991b1b !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
+              .badge.vacant {
+                background-color: #f1f5f9 !important;
+                color: #475569 !important;
+                -webkit-print-color-adjust: exact;
+                print-color-adjust: exact;
+              }
             }
           </style>
         </head>
         <body>
+          <!-- Premium Dark Mode Print Toolbar (hidden during printing) -->
+          <div class="no-print print-toolbar">
+            <div class="toolbar-title">
+              <span>🔎 <b>ตัวอย่างก่อนพิมพ์ (Print Preview)</b> &bull; ${dormName}</span>
+            </div>
+            <div class="toolbar-actions">
+              <div class="instruction-badge">
+                💡 <b>คำแนะนำ:</b> เพื่อความสมบูรณ์แบบของตารางรายงานกว้าง กรุณาตรวจสอบให้แน่ใจว่าได้เลือก <b>"แนววาง (Layout)"</b> เป็น <b>"แนวนอน (Landscape)"</b> ในหน้าตั้งค่าสั่งพิมพ์ของเบราว์เซอร์แล้ว
+              </div>
+              <button onclick="window.print()" class="btn-print">
+                🖨️ สั่งพิมพ์ / บันทึกเป็น PDF
+              </button>
+              <button onclick="window.close()" class="btn-close">
+                ❌ ปิดหน้าต่าง
+              </button>
+            </div>
+          </div>
+
           <div class="report-container">
             <div class="header">
               <div class="title-area">
@@ -532,17 +682,17 @@ export default function DormitoryPage() {
             <table class="table">
               <thead>
                 <tr>
-                  <th style="width: 8%">ห้อง</th>
+                  <th style="width: 6%">ห้อง</th>
                   <th style="width: 14%">ชื่อผู้เช่า</th>
                   <th style="width: 10%">ค่าเช่าห้อง</th>
-                  <th style="width: 12%">มิเตอร์น้ำ (เดิม-ใหม่)</th>
-                  <th style="width: 9%">ค่าน้ำ</th>
-                  <th style="width: 12%">มิเตอร์ไฟ (เดิม-ใหม่)</th>
-                  <th style="width: 9%">ค่าไฟ</th>
+                  <th style="width: 11%">มิเตอร์น้ำ (เดิม-ใหม่)</th>
+                  <th style="width: 8%">ค่าน้ำ</th>
+                  <th style="width: 11%">มิเตอร์ไฟ (เดิม-ใหม่)</th>
+                  <th style="width: 8%">ค่าไฟ</th>
                   <th style="width: 8%">บริการอื่น ๆ</th>
-                  <th style="width: 8%">ค่าปรับเลท</th>
-                  <th style="width: 10%">ยอดรวมสุทธิ</th>
-                  <th style="width: 10%">สถานะชำระ</th>
+                  <th style="width: 7%">ค่าปรับเลท</th>
+                  <th style="width: 9%">ยอดรวมสุทธิ</th>
+                  <th style="width: 8%">สถานะชำระ</th>
                 </tr>
               </thead>
               <tbody>
@@ -620,10 +770,10 @@ export default function DormitoryPage() {
           </div>
           <script>
             window.onload = function() {
-              window.print();
+              // Delay slightly to ensure browser rendering and fonts are fully loaded
               setTimeout(function() {
-                window.close();
-              }, 1000);
+                window.print();
+              }, 600);
             }
           </script>
         </body>
