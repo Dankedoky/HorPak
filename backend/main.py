@@ -11,7 +11,7 @@ import models, schemas, database
 from auth import create_token, LoginRequest, get_current_user
 from database import engine, get_db
 from linebot.v3 import WebhookParser
-from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest, AsyncMessagingApiBlob, FlexMessage
+from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest, AsyncMessagingApiBlob, FlexMessage, FlexContainer
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
@@ -81,93 +81,162 @@ def get_current_billing_month(ref_date_str: str = None) -> str:
 
 def create_dorm_bill_flex(room, current_month_key: str) -> dict:
     import json
-    total_amount = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+    
+    rate = room.rate or 0.0
+    water_cost = room.water_cost or 0.0
+    electric_cost = room.electric_cost or 0.0
+    cleaning_fee = room.cleaning_fee or 0.0
+    other_fee = room.other_fee or 0.0
+    fine_cost = room.fine_cost or 0.0
+    
+    water_meter_prev = room.water_meter_prev or 0.0
+    water_meter = room.water_meter or 0.0
+    electricity_meter_prev = room.electricity_meter_prev or 0.0
+    electricity_meter = room.electricity_meter or 0.0
+    late_days = room.late_days or 0
+    
+    total_amount = rate + water_cost + electric_cost + cleaning_fee + other_fee + fine_cost
     
     parts = current_month_key.split("-")
     display_month = f"{parts[1]}/{parts[0]}" if len(parts) == 2 else current_month_key
     
     body_contents = [
-        {
-            "type": "box",
-            "layout": "horizontal",
-            "contents": [
-                {"type": "text", "text": "ผู้เช่า", "color": "#718096", "size": "sm"},
-                {"type": "text", "text": room.tenant or "ผู้เช่า", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
-            ]
-        },
-        {"type": "separator", "margin": "md"},
+        # Metadata section
         {
             "type": "box",
             "layout": "vertical",
-            "margin": "lg",
             "spacing": "sm",
             "contents": [
                 {
                     "type": "box",
                     "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": "ค่าเช่าห้องพัก", "color": "#4A5568", "size": "sm"},
-                        {"type": "text", "text": f"{room.rate:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
+                        {"type": "text", "text": "🏢 ห้องพัก:", "color": "#718096", "size": "sm", "flex": 3},
+                        {"type": "text", "text": f"ห้อง {room.number}", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 5}
                     ]
                 },
                 {
                     "type": "box",
                     "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": f"ค่าน้ำประปา (มิเตอร์ {room.water_meter_prev} -> {room.water_meter})", "color": "#4A5568", "size": "xs", "wrap": True, "flex": 3},
-                        {"type": "text", "text": f"{room.water_cost:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 2}
+                        {"type": "text", "text": "👤 ผู้เช่า:", "color": "#718096", "size": "sm", "flex": 3},
+                        {"type": "text", "text": f"คุณ {room.tenant or 'ผู้เช่า'}", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 5}
                     ]
                 },
                 {
                     "type": "box",
                     "layout": "horizontal",
                     "contents": [
-                        {"type": "text", "text": f"ค่าไฟฟ้า (มิเตอร์ {room.electricity_meter_prev} -> {room.electricity_meter})", "color": "#4A5568", "size": "xs", "wrap": True, "flex": 3},
-                        {"type": "text", "text": f"{room.electric_cost:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 2}
+                        {"type": "text", "text": "📅 ประจำรอบบิล:", "color": "#718096", "size": "sm", "flex": 4},
+                        {"type": "text", "text": display_month, "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 4}
+                    ]
+                }
+            ]
+        },
+        {"type": "separator", "margin": "lg", "color": "#E2E8F0"},
+        # Breakdown section
+        {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "lg",
+            "spacing": "md",
+            "contents": [
+                # Rent Room
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": "💵 ค่าเช่าห้อง:", "color": "#4A5568", "size": "sm", "flex": 5},
+                        {"type": "text", "text": f"{rate:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 3}
+                    ]
+                },
+                # Water cost
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {"type": "text", "text": "💧 ค่าน้ำประปา:", "color": "#4A5568", "size": "sm", "flex": 5},
+                                {"type": "text", "text": f"{water_cost:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 3}
+                            ]
+                        },
+                        {
+                            "type": "text",
+                            "text": f"   (มิเตอร์ {water_meter_prev:g} -> {water_meter:g})",
+                            "color": "#718096",
+                            "size": "xs",
+                            "margin": "xs"
+                        }
+                    ]
+                },
+                # Electric cost
+                {
+                    "type": "box",
+                    "layout": "vertical",
+                    "contents": [
+                        {
+                            "type": "box",
+                            "layout": "horizontal",
+                            "contents": [
+                                {"type": "text", "text": "⚡️ ค่าไฟฟ้า:", "color": "#4A5568", "size": "sm", "flex": 5},
+                                {"type": "text", "text": f"{electric_cost:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 3}
+                            ]
+                        },
+                        {
+                            "type": "text",
+                            "text": f"   (มิเตอร์ {electricity_meter_prev:g} -> {electricity_meter:g})",
+                            "color": "#718096",
+                            "size": "xs",
+                            "margin": "xs"
+                        }
                     ]
                 }
             ]
         }
     ]
     
-    if room.cleaning_fee > 0:
+    # Append optional fields dynamically
+    if cleaning_fee > 0:
         body_contents[2]["contents"].append({
             "type": "box",
             "layout": "horizontal",
             "contents": [
-                {"type": "text", "text": "ค่าทำความสะอาด", "color": "#4A5568", "size": "sm"},
-                {"type": "text", "text": f"{room.cleaning_fee:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
+                {"type": "text", "text": "🧹 ค่าทำความสะอาด:", "color": "#4A5568", "size": "sm", "flex": 5},
+                {"type": "text", "text": f"{cleaning_fee:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 3}
             ]
         })
         
-    if room.other_fee > 0:
+    if other_fee > 0:
         body_contents[2]["contents"].append({
             "type": "box",
             "layout": "horizontal",
             "contents": [
-                {"type": "text", "text": "ค่าบริการอื่นๆ", "color": "#4A5568", "size": "sm"},
-                {"type": "text", "text": f"{room.other_fee:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
+                {"type": "text", "text": "📦 ค่าบริการอื่นๆ:", "color": "#4A5568", "size": "sm", "flex": 5},
+                {"type": "text", "text": f"{other_fee:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 3}
             ]
         })
         
-    if room.fine_cost > 0:
+    if fine_cost > 0:
         body_contents[2]["contents"].append({
             "type": "box",
             "layout": "horizontal",
             "contents": [
-                {"type": "text", "text": f"⚠️ ค่าปรับล่าช้า ({room.late_days} วัน)", "color": "#E53E3E", "size": "sm"},
-                {"type": "text", "text": f"{room.fine_cost:,.2f} บาท", "weight": "bold", "color": "#E53E3E", "size": "sm", "align": "end"}
+                {"type": "text", "text": f"⚠️ ค่าปรับล่าช้า ({late_days} วัน):", "color": "#E53E3E", "size": "sm", "flex": 5},
+                {"type": "text", "text": f"{fine_cost:,.2f} บาท", "weight": "bold", "color": "#E53E3E", "size": "sm", "align": "end", "flex": 3}
             ]
         })
         
-    body_contents.append({"type": "separator", "margin": "lg"})
+    body_contents.append({"type": "separator", "margin": "lg", "color": "#E2E8F0"})
     body_contents.append({
         "type": "box",
         "layout": "horizontal",
         "margin": "lg",
         "contents": [
-            {"type": "text", "text": "ยอดรวมที่ต้องชำระ", "weight": "bold", "color": "#1A365D", "size": "md"},
-            {"type": "text", "text": f"{total_amount:,.2f} บาท", "weight": "bold", "color": "#E53E3E", "size": "lg", "align": "end"}
+            {"type": "text", "text": "💰 ยอดรวมที่ต้องชำระ:", "weight": "bold", "color": "#1A365D", "size": "md", "flex": 5},
+            {"type": "text", "text": f"{total_amount:,.2f} บาท", "weight": "bold", "color": "#E53E3E", "size": "md", "align": "end", "flex": 3}
         ]
     })
     
@@ -180,8 +249,7 @@ def create_dorm_bill_flex(room, current_month_key: str) -> dict:
             "type": "box",
             "layout": "vertical",
             "contents": [
-                {"type": "text", "text": "ใบแจ้งยอดค่าเช่าหอพัก", "weight": "bold", "color": "#FFFFFF", "size": "lg"},
-                {"type": "text", "text": f"ห้อง {room.number} | รอบบิล {display_month}", "color": "#CBD5E0", "size": "sm", "margin": "xs"}
+                {"type": "text", "text": "🧾 ใบแจ้งยอดค่าเช่าหอพัก 🧾", "weight": "bold", "color": "#FFFFFF", "size": "md", "align": "center"}
             ]
         },
         "body": {
@@ -203,12 +271,21 @@ def create_dorm_bill_flex(room, current_month_key: str) -> dict:
                     "align": "center",
                     "weight": "bold"
                 },
+                {"type": "separator", "margin": "md", "color": "#E2E8F0"},
                 {
                     "type": "text",
-                    "text": "🏦 โอนเงินเข้าบัญชีธนาคารแล้วส่งสลิปเพื่อตัดจ่ายอัตโนมัติค่ะ",
-                    "color": "#718096",
-                    "size": "xxs",
-                    "align": "center",
+                    "text": "🏦 วิธีการชำระเงิน:",
+                    "weight": "bold",
+                    "color": "#1A365D",
+                    "size": "sm",
+                    "margin": "md"
+                },
+                {
+                    "type": "text",
+                    "text": "กรุณาโอนเงินเข้าบัญชีธนาคาร และส่งสลิปโอนเงินเข้ามาในแชท LINE OA นี้ เพื่อให้ระบบสแกนสลิปและปรับปรุงยอดโดยอัตโนมัติครับ 🙏",
+                    "color": "#4A5568",
+                    "size": "xs",
+                    "wrap": True,
                     "margin": "xs"
                 },
                 {
@@ -220,7 +297,7 @@ def create_dorm_bill_flex(room, current_month_key: str) -> dict:
                         "label": "📸 แจ้งโอนเงิน",
                         "text": "แจ้งโอนเงิน"
                     },
-                    "margin": "md"
+                    "margin": "lg"
                 }
             ]
         }
@@ -258,7 +335,7 @@ def create_consolidated_bill_flex(tenant_name: str, room_number: str, unpaid_ite
             "type": "box",
             "layout": "vertical",
             "margin": "sm",
-            "spacing": "xxs",
+            "spacing": "xs",
             "contents": []
         }
         for d in item["details"]:
@@ -1640,16 +1717,23 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 
                 # Check for unpaid Room Bill
                 if room and room.payment_status != "paid":
-                    room_total = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+                    rate_val = room.rate or 0.0
+                    water_val = room.water_cost or 0.0
+                    electric_val = room.electric_cost or 0.0
+                    cleaning_val = room.cleaning_fee or 0.0
+                    other_val = room.other_fee or 0.0
+                    fine_val = room.fine_cost or 0.0
+                    
+                    room_total = rate_val + water_val + electric_val + cleaning_val + other_val + fine_val
                     unpaid_items.append({
                         "type": "room",
                         "title": f"🚪 ค่าห้องพักประจำเดือน (ห้อง {room.number})",
                         "amount": room_total,
                         "details": [
-                            f"• ค่าเช่าห้อง: {room.rate:,.2f} บาท",
-                            f"• ค่าน้ำประปา: {room.water_cost:,.2f} บาท",
-                            f"• ค่าไฟฟ้า: {room.electric_cost:,.2f} บาท",
-                            f"• ค่าบริการอื่นๆ/ค่าปรับ: {(room.cleaning_fee + room.other_fee + room.fine_cost):,.2f} บาท"
+                            f"• ค่าเช่าห้อง: {rate_val:,.2f} บาท",
+                            f"• ค่าน้ำประปา: {water_val:,.2f} บาท",
+                            f"• ค่าไฟฟ้า: {electric_val:,.2f} บาท",
+                            f"• ค่าบริการอื่นๆ/ค่าปรับ: {(cleaning_val + other_val + fine_val):,.2f} บาท"
                         ]
                     })
                 
@@ -1679,13 +1763,21 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                     reply_message = TextMessage(text=reply_text)
                 else:
                     import json
-                    grand_total = sum(item["amount"] for item in unpaid_items)
-                    room_number = room.number if room else "-"
-                    flex_payload = create_consolidated_bill_flex(tenant_name, room_number, unpaid_items, grand_total)
-                    reply_message = FlexMessage(
-                        alt_text=f"สรุปยอดค้างชำระทั้งหมดของคุณ {tenant_name}",
-                        contents=FlexMessage.from_json(json.dumps(flex_payload))
-                    )
+                    if len(unpaid_items) == 1 and unpaid_items[0]["type"] == "room" and room:
+                        current_month_key = get_current_billing_month()
+                        flex_payload = create_dorm_bill_flex(room, current_month_key)
+                        reply_message = FlexMessage(
+                            alt_text=f"ใบแจ้งยอดค่าเช่าห้อง {room.number} ประจำรอบบิล {current_month_key}",
+                            contents=FlexContainer.from_json(json.dumps(flex_payload))
+                        )
+                    else:
+                        grand_total = sum(item["amount"] for item in unpaid_items)
+                        room_number = room.number if room else "-"
+                        flex_payload = create_consolidated_bill_flex(tenant_name, room_number, unpaid_items, grand_total)
+                        reply_message = FlexMessage(
+                            alt_text=f"สรุปยอดค้างชำระทั้งหมดของคุณ {tenant_name}",
+                            contents=FlexContainer.from_json(json.dumps(flex_payload))
+                        )
                     
             await get_line_bot_api().reply_message(
                 ReplyMessageRequest(
@@ -1784,7 +1876,7 @@ async def send_billing_reminder(send_line: bool = False, db: Session = Depends(g
                     messages=[
                         FlexMessage(
                             alt_text=f"ใบแจ้งยอดค่าเช่าห้อง {room.number} ประจำรอบบิล {current_month_key}",
-                            contents=FlexMessage.from_json(json.dumps(flex_payload))
+                            contents=FlexContainer.from_json(json.dumps(flex_payload))
                         )
                     ]
                 ))
@@ -1951,35 +2043,104 @@ def update_room(dorm_key: str, number: str, room_update: schemas.DormRoomUpdate,
     current_month_key = get_current_billing_month(room.payment_date)
     ref_id = f"dorm_payment_{room.id}_{current_month_key}"
     
+    # Always keep DormPayment record in sync or create if it doesn't exist
+    pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == current_month_key).first()
+    if not pmt:
+        pmt = models.DormPayment(
+            room_id=room.id,
+            month=current_month_key,
+            payment_status=room.payment_status,
+            paid_at=datetime.utcnow() if room.payment_status == "paid" else None
+        )
+        db.add(pmt)
+    
+    # Sync all fields from room state to DormPayment snapshot
+    pmt.amount = room.rate or 0.0
+    pmt.water_cost = room.water_cost or 0.0
+    pmt.electric_cost = room.electric_cost or 0.0
+    pmt.cleaning_fee = room.cleaning_fee or 0.0
+    pmt.other_fee = room.other_fee or 0.0
+    pmt.fine_cost = room.fine_cost or 0.0
+    pmt.water_meter_prev = room.water_meter_prev or 0.0
+    pmt.water_meter = room.water_meter or 0.0
+    pmt.electricity_meter_prev = room.electricity_meter_prev or 0.0
+    pmt.electricity_meter = room.electricity_meter or 0.0
+    pmt.remark = room.remark
+    pmt.move_out = room.move_out
+    pmt.vacant = room.vacant
+    pmt.payment_status = room.payment_status
+    if room.payment_status == "paid" and not pmt.paid_at:
+        pmt.paid_at = datetime.utcnow()
+    elif room.payment_status != "paid":
+        pmt.paid_at = None
+        
+    # Transaction Ledger Management
+    total_bill = (room.rate or 0.0) + (room.water_cost or 0.0) + (room.electric_cost or 0.0) + (room.cleaning_fee or 0.0) + (room.other_fee or 0.0) + (room.fine_cost or 0.0)
+    
     if room.payment_status == "paid" and old_status != "paid" and room.tenant:
-        total_bill = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
         if total_bill > 0:
             unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first()
             if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
                 db.add(models.Transaction(type=models.TransactionType.INCOME, amount=total_bill, description=f"ค่าเช่าห้อง {room.number} รอบเดือน {current_month_key} - {room.tenant}", reference_id=ref_id, unit_id=unit.id if unit else None))
-            if not db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == current_month_key).first():
-                db.add(models.DormPayment(room_id=room.id, month=current_month_key, amount=room.rate, water_cost=room.water_cost, electric_cost=room.electric_cost, cleaning_fee=room.cleaning_fee, other_fee=room.other_fee, fine_cost=room.fine_cost, payment_status="paid", paid_at=datetime.utcnow()))
-            db.commit()
     elif room.payment_status != "paid" and old_status == "paid":
         tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
         if tx:
             db.delete(tx)
-        pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == current_month_key).first()
-        if pmt:
-            db.delete(pmt)
-        db.commit()
+            
+    db.commit()
+    db.refresh(room)
     return room
 
 @app.post("/rooms/rollover/")
 def rollover_rooms(db: Session = Depends(get_db)):
     rooms = db.query(models.DormRoom).all()
     for r in rooms:
-        # Move current meters to previous
+        current_month_key = get_current_billing_month(r.payment_date)
+        
+        # Ensure a historical snapshot exists for the month before we reset
+        pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == r.id, models.DormPayment.month == current_month_key).first()
+        if not pmt:
+            pmt = models.DormPayment(
+                room_id=r.id,
+                month=current_month_key
+            )
+            db.add(pmt)
+            
+        # Freeze current state to snapshot
+        pmt.amount = r.rate or 0.0
+        pmt.water_cost = r.water_cost or 0.0
+        pmt.electric_cost = r.electric_cost or 0.0
+        pmt.cleaning_fee = r.cleaning_fee or 0.0
+        pmt.other_fee = r.other_fee or 0.0
+        pmt.fine_cost = r.fine_cost or 0.0
+        pmt.water_meter_prev = r.water_meter_prev or 0.0
+        pmt.water_meter = r.water_meter or 0.0
+        pmt.electricity_meter_prev = r.electricity_meter_prev or 0.0
+        pmt.electricity_meter = r.electricity_meter or 0.0
+        pmt.remark = r.remark
+        pmt.move_out = r.move_out
+        pmt.vacant = r.vacant
+        pmt.payment_status = r.payment_status
+        if r.payment_status == "paid" and not pmt.paid_at:
+            pmt.paid_at = datetime.utcnow()
+            
+        # Move current meters to previous on room object
         r.water_meter_prev = r.water_meter
         r.electricity_meter_prev = r.electricity_meter
+        
         # Reset costs and status for new month
-        r.water_cost = 0.0; r.electric_cost = 0.0; r.cleaning_fee = 0.0; r.other_fee = 0.0; r.late_days = 0; r.fine_cost = 0.0
-        r.payment_status = "pending"; r.payment_date = ""; r.remark = ""; r.move_out = ""; r.vacant = ""
+        r.water_cost = 0.0
+        r.electric_cost = 0.0
+        r.cleaning_fee = 0.0
+        r.other_fee = 0.0
+        r.late_days = 0
+        r.fine_cost = 0.0
+        r.payment_status = "pending"
+        r.payment_date = ""
+        r.remark = ""
+        r.move_out = ""
+        r.vacant = ""
+        
     db.commit()
     return {"status": "success", "message": "ขึ้นรอบบิลใหม่เรียบร้อย!"}
 
@@ -1989,6 +2150,242 @@ def reset_rooms(db: Session = Depends(get_db)):
     models.Base.metadata.drop_all(bind=engine); models.Base.metadata.create_all(bind=engine)
     seed_business_units(); seed_rooms_and_houses()
     return {"status": "success", "message": "รีเซ็ตข้อมูลทั้งหมดเรียบร้อยแล้ว!"}
+
+# Excel Spreadsheet Endpoints
+from pydantic import BaseModel
+
+class SpreadsheetUpdatePayload(BaseModel):
+    rate: Optional[float] = None
+    water_meter_prev: Optional[float] = None
+    water_meter: Optional[float] = None
+    electricity_meter_prev: Optional[float] = None
+    electricity_meter: Optional[float] = None
+    cleaning_fee: Optional[float] = None
+    other_fee: Optional[float] = None
+    remark: Optional[str] = None
+    move_out: Optional[str] = None
+    vacant: Optional[str] = None
+    payment_status: Optional[str] = None
+
+@app.get("/rooms/spreadsheet/{month}/", response_model=List[schemas.SpreadsheetRoomResponse])
+def get_room_spreadsheet(month: str, db: Session = Depends(get_db)):
+    active_month = get_current_billing_month()
+    rooms = db.query(models.DormRoom).order_by(models.DormRoom.number.asc()).all()
+    
+    result = []
+    for r in rooms:
+        if month == active_month:
+            pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == r.id, models.DormPayment.month == month).first()
+            result.append({
+                "room_id": r.id,
+                "number": r.number,
+                "floor": r.floor,
+                "dorm_key": r.dorm_key,
+                "rate": r.rate or 0.0,
+                "tenant": r.tenant or "",
+                "water_meter_prev": r.water_meter_prev or 0.0,
+                "water_meter": r.water_meter or 0.0,
+                "electricity_meter_prev": r.electricity_meter_prev or 0.0,
+                "electricity_meter": r.electricity_meter or 0.0,
+                "water_cost": r.water_cost or 0.0,
+                "electric_cost": r.electric_cost or 0.0,
+                "cleaning_fee": r.cleaning_fee or 0.0,
+                "other_fee": r.other_fee or 0.0,
+                "fine_cost": r.fine_cost or 0.0,
+                "payment_status": r.payment_status or "pending",
+                "remark": r.remark or "",
+                "move_out": r.move_out or "",
+                "vacant": r.vacant or "",
+                "paid_at": pmt.paid_at.isoformat() if pmt and pmt.paid_at else None
+            })
+        else:
+            pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == r.id, models.DormPayment.month == month).first()
+            if pmt:
+                result.append({
+                    "room_id": r.id,
+                    "number": r.number,
+                    "floor": r.floor,
+                    "dorm_key": r.dorm_key,
+                    "rate": pmt.amount or 0.0,
+                    "tenant": r.tenant if pmt.payment_status == "paid" else (r.tenant or ""),
+                    "water_meter_prev": pmt.water_meter_prev or 0.0,
+                    "water_meter": pmt.water_meter or 0.0,
+                    "electricity_meter_prev": pmt.electricity_meter_prev or 0.0,
+                    "electricity_meter": pmt.electricity_meter or 0.0,
+                    "water_cost": pmt.water_cost or 0.0,
+                    "electric_cost": pmt.electric_cost or 0.0,
+                    "cleaning_fee": pmt.cleaning_fee or 0.0,
+                    "other_fee": pmt.other_fee or 0.0,
+                    "fine_cost": pmt.fine_cost or 0.0,
+                    "payment_status": pmt.payment_status or "unpaid",
+                    "remark": pmt.remark or "",
+                    "move_out": pmt.move_out or "",
+                    "vacant": pmt.vacant or "",
+                    "paid_at": pmt.paid_at.isoformat() if pmt.paid_at else None
+                })
+            else:
+                result.append({
+                    "room_id": r.id,
+                    "number": r.number,
+                    "floor": r.floor,
+                    "dorm_key": r.dorm_key,
+                    "rate": r.rate or 0.0,
+                    "tenant": "",
+                    "water_meter_prev": 0.0,
+                    "water_meter": 0.0,
+                    "electricity_meter_prev": 0.0,
+                    "electricity_meter": 0.0,
+                    "water_cost": 0.0,
+                    "electric_cost": 0.0,
+                    "cleaning_fee": 0.0,
+                    "other_fee": 0.0,
+                    "fine_cost": 0.0,
+                    "payment_status": "unpaid",
+                    "remark": "",
+                    "move_out": "",
+                    "vacant": "ว่าง",
+                    "paid_at": None
+                })
+    return result
+
+@app.patch("/rooms/spreadsheet/{month}/{room_id}/")
+def patch_room_spreadsheet(month: str, room_id: int, payload: SpreadsheetUpdatePayload, db: Session = Depends(get_db)):
+    active_month = get_current_billing_month()
+    room = db.query(models.DormRoom).filter(models.DormRoom.id == room_id).first()
+    if not room: raise HTTPException(status_code=404, detail="Room not found")
+    
+    water_prev = payload.water_meter_prev if payload.water_meter_prev is not None else room.water_meter_prev
+    water_curr = payload.water_meter if payload.water_meter is not None else room.water_meter
+    elec_prev = payload.electricity_meter_prev if payload.electricity_meter_prev is not None else room.electricity_meter_prev
+    elec_curr = payload.electricity_meter if payload.electricity_meter is not None else room.electricity_meter
+    
+    water_units = max(0.0, water_curr - water_prev)
+    elec_units = max(0.0, elec_curr - elec_prev)
+    
+    water_cost = water_units * 17.0
+    elec_cost = elec_units * 7.0
+    
+    if month == active_month:
+        if payload.rate is not None: room.rate = payload.rate
+        if payload.water_meter_prev is not None: room.water_meter_prev = payload.water_meter_prev
+        if payload.water_meter is not None: room.water_meter = payload.water_meter
+        if payload.electricity_meter_prev is not None: room.electricity_meter_prev = payload.electricity_meter_prev
+        if payload.electricity_meter is not None: room.electricity_meter = payload.electricity_meter
+        if payload.cleaning_fee is not None: room.cleaning_fee = payload.cleaning_fee
+        if payload.other_fee is not None: room.other_fee = payload.other_fee
+        if payload.remark is not None: room.remark = payload.remark
+        if payload.move_out is not None: room.move_out = payload.move_out
+        if payload.vacant is not None: room.vacant = payload.vacant
+        
+        room.water_cost = water_cost
+        room.electric_cost = elec_cost
+        
+        if payload.payment_status is not None:
+            old_status = room.payment_status
+            room.payment_status = payload.payment_status
+            if payload.payment_status == "paid" and old_status != "paid":
+                room.payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            elif payload.payment_status != "paid" and old_status == "paid":
+                room.payment_date = ""
+                
+        db.commit()
+        db.refresh(room)
+        
+        pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == month).first()
+        if not pmt:
+            pmt = models.DormPayment(room_id=room.id, month=month)
+            db.add(pmt)
+            
+        pmt.amount = room.rate or 0.0
+        pmt.water_cost = room.water_cost or 0.0
+        pmt.electric_cost = room.electric_cost or 0.0
+        pmt.cleaning_fee = room.cleaning_fee or 0.0
+        pmt.other_fee = room.other_fee or 0.0
+        pmt.fine_cost = room.fine_cost or 0.0
+        pmt.water_meter_prev = room.water_meter_prev or 0.0
+        pmt.water_meter = room.water_meter or 0.0
+        pmt.electricity_meter_prev = room.electricity_meter_prev or 0.0
+        pmt.electricity_meter = room.electricity_meter or 0.0
+        pmt.remark = room.remark
+        pmt.move_out = room.move_out
+        pmt.vacant = room.vacant
+        pmt.payment_status = room.payment_status
+        if room.payment_status == "paid" and not pmt.paid_at:
+            pmt.paid_at = datetime.utcnow()
+        elif room.payment_status != "paid":
+            pmt.paid_at = None
+            
+        db.commit()
+    else:
+        pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == month).first()
+        if not pmt:
+            pmt = models.DormPayment(room_id=room.id, month=month)
+            db.add(pmt)
+            
+        if payload.rate is not None: pmt.amount = payload.rate
+        if payload.water_meter_prev is not None: pmt.water_meter_prev = payload.water_meter_prev
+        if payload.water_meter is not None: pmt.water_meter = payload.water_meter
+        if payload.electricity_meter_prev is not None: pmt.electricity_meter_prev = payload.electricity_meter_prev
+        if payload.electricity_meter is not None: pmt.electricity_meter = payload.electricity_meter
+        if payload.cleaning_fee is not None: pmt.cleaning_fee = payload.cleaning_fee
+        if payload.other_fee is not None: pmt.other_fee = payload.other_fee
+        if payload.remark is not None: pmt.remark = payload.remark
+        if payload.move_out is not None: pmt.move_out = payload.move_out
+        if payload.vacant is not None: pmt.vacant = payload.vacant
+        
+        pmt.water_cost = water_cost
+        pmt.electric_cost = elec_cost
+        
+        if payload.payment_status is not None:
+            pmt.payment_status = payload.payment_status
+            if payload.payment_status == "paid" and not pmt.paid_at:
+                pmt.paid_at = datetime.utcnow()
+            elif payload.payment_status != "paid":
+                pmt.paid_at = None
+                
+        db.commit()
+        
+    return {"status": "success", "message": "บันทึกข้อมูลเรียบร้อย!"}
+
+@app.get("/rooms/utility-history-trends/")
+def get_utility_history_trends(db: Session = Depends(get_db)):
+    current_date = datetime.now()
+    months_list = []
+    for i in range(11, -1, -1):
+        m = current_date.month - i
+        y = current_date.year
+        while m <= 0:
+            m += 12
+            y -= 1
+        months_list.append(f"{y:04d}-{m:02d}")
+        
+    trends = []
+    for m in months_list:
+        payments = db.query(models.DormPayment).filter(models.DormPayment.month == m).all()
+        
+        total_water_units = 0.0
+        total_water_cost = 0.0
+        total_elec_units = 0.0
+        total_elec_cost = 0.0
+        
+        for p in payments:
+            water_u = max(0.0, (p.water_meter or 0.0) - (p.water_meter_prev or 0.0))
+            elec_u = max(0.0, (p.electricity_meter or 0.0) - (p.electricity_meter_prev or 0.0))
+            
+            total_water_units += water_u
+            total_water_cost += (p.water_cost or 0.0)
+            total_elec_units += elec_u
+            total_elec_cost += (p.electric_cost or 0.0)
+            
+        trends.append({
+            "month": m,
+            "water_units": total_water_units,
+            "water_cost": total_water_cost,
+            "electricity_units": total_elec_units,
+            "electricity_cost": total_elec_cost
+        })
+        
+    return trends
 
 # Garage Endpoints
 @app.get("/garage/jobs/", response_model=List[schemas.GarageJob])

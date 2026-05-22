@@ -175,6 +175,15 @@ class DormPayment(Base):
     payment_status = Column(String, default="unpaid") # "unpaid", "paid"
     paid_at = Column(DateTime, nullable=True)
     slip_url = Column(String, nullable=True)
+    
+    # Historical Utility & Room Snapshots
+    water_meter_prev = Column(Float, default=0.0)
+    water_meter = Column(Float, default=0.0)
+    electricity_meter_prev = Column(Float, default=0.0)
+    electricity_meter = Column(Float, default=0.0)
+    remark = Column(String, nullable=True)
+    move_out = Column(String, nullable=True)
+    vacant = Column(String, nullable=True)
 
 class MaintenanceTicket(Base):
     __tablename__ = "maintenance_tickets"

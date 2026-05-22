@@ -347,6 +347,15 @@ class DormPaymentBase(BaseModel):
     payment_status: str = "unpaid"
     paid_at: Optional[datetime] = None
     slip_url: Optional[str] = None
+    
+    # New utility and room status snapshot fields
+    water_meter_prev: float = 0.0
+    water_meter: float = 0.0
+    electricity_meter_prev: float = 0.0
+    electricity_meter: float = 0.0
+    remark: Optional[str] = None
+    move_out: Optional[str] = None
+    vacant: Optional[str] = None
 
     @field_validator('paid_at', mode='before')
     @classmethod
@@ -404,6 +413,42 @@ class UtilityItem(BaseModel):
 class UtilityAnalyticsResponse(BaseModel):
     water: List[UtilityItem]
     electricity: List[UtilityItem]
+
+# Excel Spreadsheet Schemas
+class SpreadsheetUpdatePayload(BaseModel):
+    rate: Optional[float] = None
+    water_meter_prev: Optional[float] = None
+    water_meter: Optional[float] = None
+    electricity_meter_prev: Optional[float] = None
+    electricity_meter: Optional[float] = None
+    cleaning_fee: Optional[float] = None
+    other_fee: Optional[float] = None
+    remark: Optional[str] = None
+    move_out: Optional[str] = None
+    vacant: Optional[str] = None
+    payment_status: Optional[str] = None
+
+class SpreadsheetRoomResponse(BaseModel):
+    room_id: int
+    number: str
+    floor: int
+    dorm_key: str
+    rate: float
+    tenant: str
+    water_meter_prev: float
+    water_meter: float
+    electricity_meter_prev: float
+    electricity_meter: float
+    water_cost: float
+    electric_cost: float
+    cleaning_fee: float
+    other_fee: float
+    fine_cost: float
+    payment_status: str
+    remark: Optional[str] = None
+    move_out: Optional[str] = None
+    vacant: Optional[str] = None
+    paid_at: Optional[str] = None
 
 
 
