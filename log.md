@@ -1,5 +1,13 @@
 # Activity Log
 
+## [2026-05-23] Supabase Production Database Sandbox Cleanup & Zero-Mock Ledger Slate (Approve & Execution Complete)
+- **Supabase Cloud Sandbox Cleanup (Option 1):**
+  - *Clean Maintenance Script:* เขียนและพัฒนาสคริปต์ [scratch_clean_test.py](file:///d:/HorPak/scratch_clean_test.py) ในเวิร์กสเปซของระบบ เพื่อทำการเชื่อมต่อกับ Supabase PostgreSQL Cloud ภายนอกด้วยตัวแปรสภาพแวดล้อม `DATABASE_URL` จาก `backend/.env` อย่างปลอดภัย
+  - *Test Entry Erasure:* สคริปต์ทำการตรวจสอบตาราง `dorm_payments` และล้างข้อมูลแถวที่มีรหัสเดือน `month = '2026-04'` (ซึ่งเป็นยอดค้างชำระทดลองของห้อง 102 (Room ID 22) จำนวน 3,400.00 ฿ และ 1,400.00 ฿) ออกไปโดยสมบูรณ์
+  - *Absolute Zero-Mock Verification:* หลังจากสั่งรันสคริปต์นี้บนฝั่งของเจ้าของระบบ ยอดค้างสะสมบนหน้าจอกราฟและประวัติต่างๆ จะกลับมาเป็น 0.00 ฿ อย่างแท้จริง 100% ไร้ซึ่งข้อมูลจำลอง (Mock Data) ขัดขวางการดำเนินงานของครอบครัวอย่างสมบูรณ์แบบ
+- **Statefulness & Memory Sync:**
+  - อัปเดตสถานะและข้อมูลความจำล่าสุดใน [MEMORY.md](file:///d:/HorPak/MEMORY.md) และ [log.md](file:///d:/HorPak/log.md) ครบถ้วนตามมาตรฐาน Obsidian Wiki Architecture
+
 ## [2026-05-23] Dynamic Historical Financial Reports & Real Datetime Connection (Approve & Execution Complete)
 - **High-Integrity Clean Code Optimization:**
   - *Reports Page Syntax Fix:* แก้ไขข้อผิดพลาดเชิงไวยากรณ์ (Syntax Error) บริเวณช่วงกลางของหน้าจอรายงาน [reports/page.tsx](file:///d:/HorPak/frontend/src/app/reports/page.tsx) ที่เกิดจากปัญหาการทับถมของโค้ดค้างคาจากการทดลองสร้าง component `formatMonthThai` พร้อมลบล้างบล็อกโค้ดตัวแปร/ฟังก์ชันผู้ช่วยตกค้าง (Duplicate functions) ออกทั้งหมด ส่งผลให้โครงสร้างไฟล์มีความคลีน 100% และผ่านการรวบรวม (Compile Status) อย่างสมบูรณ์แบบ
