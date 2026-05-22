@@ -2108,12 +2108,23 @@ def update_room(dorm_key: str, number: str, room_update: schemas.DormRoomUpdate,
     # Transaction Ledger Management
     total_bill = (room.rate or 0.0) + (room.water_cost or 0.0) + (room.electric_cost or 0.0) + (room.cleaning_fee or 0.0) + (room.other_fee or 0.0) + (room.fine_cost or 0.0)
     
-    if room.payment_status == "paid" and old_status != "paid" and room.tenant:
-        if total_bill > 0:
-            unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first()
-            if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
-                db.add(models.Transaction(type=models.TransactionType.INCOME, amount=total_bill, description=f"ค่าเช่าห้อง {room.number} รอบเดือน {current_month_key} - {room.tenant}", reference_id=ref_id, unit_id=unit.id if unit else None))
-    elif room.payment_status != "paid" and old_status == "paid":
+    if room.payment_status == "paid" and room.tenant and total_bill > 0:
+        unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first()
+        tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+        if not tx:
+            db.add(models.Transaction(
+                type=models.TransactionType.INCOME, 
+                amount=total_bill, 
+                description=f"ค่าเช่าห้อง {room.number} รอบเดือน {current_month_key} - {room.tenant}", 
+                reference_id=ref_id, 
+                unit_id=unit.id if unit else None
+            ))
+        else:
+            tx.amount = total_bill
+            tx.description = f"ค่าเช่าห้อง {room.number} รอบเดือน {current_month_key} - {room.tenant}"
+            if unit:
+                tx.unit_id = unit.id
+    else:
         tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
         if tx:
             db.delete(tx)
@@ -2347,6 +2358,32 @@ def patch_room_spreadsheet(month: str, room_id: int, payload: SpreadsheetUpdateP
             pmt.paid_at = None
             
         db.commit()
+        
+        # Transaction Ledger Management for Active Month
+        ref_id = f"dorm_payment_{room.id}_{month}"
+        total_bill = (room.rate or 0.0) + (room.water_cost or 0.0) + (room.electric_cost or 0.0) + (room.cleaning_fee or 0.0) + (room.other_fee or 0.0) + (room.fine_cost or 0.0)
+        
+        if room.payment_status == "paid" and room.tenant and total_bill > 0:
+            unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first()
+            tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            if not tx:
+                db.add(models.Transaction(
+                    type=models.TransactionType.INCOME, 
+                    amount=total_bill, 
+                    description=f"ค่าเช่าห้อง {room.number} รอบเดือน {month} - {room.tenant}", 
+                    reference_id=ref_id, 
+                    unit_id=unit.id if unit else None
+                ))
+            else:
+                tx.amount = total_bill
+                tx.description = f"ค่าเช่าห้อง {room.number} รอบเดือน {month} - {room.tenant}"
+                if unit:
+                    tx.unit_id = unit.id
+        else:
+            tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            if tx:
+                db.delete(tx)
+        db.commit()
     else:
         pmt = db.query(models.DormPayment).filter(models.DormPayment.room_id == room.id, models.DormPayment.month == month).first()
         if not pmt:
@@ -2374,6 +2411,32 @@ def patch_room_spreadsheet(month: str, room_id: int, payload: SpreadsheetUpdateP
             elif payload.payment_status != "paid":
                 pmt.paid_at = None
                 
+        db.commit()
+        
+        # Transaction Ledger Management for Historical Month
+        ref_id = f"dorm_payment_{room.id}_{month}"
+        total_bill = (pmt.amount or 0.0) + (pmt.water_cost or 0.0) + (pmt.electric_cost or 0.0) + (pmt.cleaning_fee or 0.0) + (pmt.other_fee or 0.0) + (pmt.fine_cost or 0.0)
+        
+        if pmt.payment_status == "paid" and room.tenant and total_bill > 0:
+            unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first()
+            tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            if not tx:
+                db.add(models.Transaction(
+                    type=models.TransactionType.INCOME, 
+                    amount=total_bill, 
+                    description=f"ค่าเช่าห้อง {room.number} รอบเดือน {month} - {room.tenant}", 
+                    reference_id=ref_id, 
+                    unit_id=unit.id if unit else None
+                ))
+            else:
+                tx.amount = total_bill
+                tx.description = f"ค่าเช่าห้อง {room.number} รอบเดือน {month} - {room.tenant}"
+                if unit:
+                    tx.unit_id = unit.id
+        else:
+            tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+            if tx:
+                db.delete(tx)
         db.commit()
         
     return {"status": "success", "message": "บันทึกข้อมูลเรียบร้อย!"}
@@ -2476,16 +2539,49 @@ def update_rental_house(house_id: str, house_update: schemas.RentalHouseUpdate, 
     current_month_key = get_current_billing_month(db_house.last_payment_date)
     ref_id = f"house_payment_{db_house.id}_{current_month_key}"
     
-    if db_house.payment_status == "paid" and old_status != "paid" and db_house.tenant_name:
-        total = db_house.monthly_rent + db_house.water_bill + db_house.electric_bill
-        if total > 0:
-            unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.name == db_house.name).first() or db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.HOUSE).first()
-            if not db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first():
-                db.add(models.Transaction(type=models.TransactionType.INCOME, amount=total, description=f"ค่าเช่าบ้าน {db_house.name} รอบ {current_month_key}", reference_id=ref_id, unit_id=unit.id if unit else None))
-            if not db.query(models.HousePayment).filter(models.HousePayment.house_id == db_house.id, models.HousePayment.month == current_month_key).first():
-                db.add(models.HousePayment(house_id=db_house.id, month=current_month_key, amount=db_house.monthly_rent, water_bill=db_house.water_bill, electric_bill=db_house.electric_bill, payment_status="paid", paid_at=datetime.utcnow()))
-            db.commit()
-    elif db_house.payment_status != "paid" and old_status == "paid":
+    total = (db_house.monthly_rent or 0.0) + (db_house.water_bill or 0.0) + (db_house.electric_bill or 0.0)
+    
+    if db_house.payment_status == "paid" and db_house.tenant_name and total > 0:
+        unit = db.query(models.BusinessUnit).filter(models.BusinessUnit.name == db_house.name).first() or db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.HOUSE).first()
+        
+        # Sync Transaction
+        tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
+        if not tx:
+            db.add(models.Transaction(
+                type=models.TransactionType.INCOME, 
+                amount=total, 
+                description=f"ค่าเช่าบ้าน {db_house.name} รอบ {current_month_key}", 
+                reference_id=ref_id, 
+                unit_id=unit.id if unit else None
+            ))
+        else:
+            tx.amount = total
+            tx.description = f"ค่าเช่าบ้าน {db_house.name} รอบ {current_month_key}"
+            if unit:
+                tx.unit_id = unit.id
+                
+        # Sync HousePayment snapshot
+        pmt = db.query(models.HousePayment).filter(models.HousePayment.house_id == db_house.id, models.HousePayment.month == current_month_key).first()
+        if not pmt:
+            db.add(models.HousePayment(
+                house_id=db_house.id, 
+                month=current_month_key, 
+                amount=db_house.monthly_rent or 0.0, 
+                water_bill=db_house.water_bill or 0.0, 
+                electric_bill=db_house.electric_bill or 0.0, 
+                payment_status="paid", 
+                paid_at=datetime.utcnow()
+            ))
+        else:
+            pmt.amount = db_house.monthly_rent or 0.0
+            pmt.water_bill = db_house.water_bill or 0.0
+            pmt.electric_bill = db_house.electric_bill or 0.0
+            pmt.payment_status = "paid"
+            if not pmt.paid_at:
+                pmt.paid_at = datetime.utcnow()
+        db.commit()
+    else:
+        # Delete Transaction and HousePayment if payment_status is not paid, or no tenant, or total <= 0
         tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
         if tx:
             db.delete(tx)

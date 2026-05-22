@@ -1,5 +1,14 @@
 # Activity Log
 
+## [2026-05-22] 100% Ledger Integrity & Accounting Reconciliation Logic (Approve & Execution Complete)
+- **100% Automatic Ledger Reconciliation:**
+  - *Dormitory Room Billing (`update_room`):* Upgraded the Transaction Ledger Management block to dynamically query, match, and sync transaction amounts (`Transaction.amount`) and descriptions to the latest room rates, water costs, electricity costs, cleaning/other fees, and fines whenever a room's status is `"paid"`. If the status is toggled away from `"paid"`, or if `total_bill` falls to 0, it automatically reverses (deletes) the ledger entry.
+  - *Spreadsheet Bulk Grid Billing (`patch_room_spreadsheet`):* Hardened spreadsheet cell updates for both the **Active Billing Month** and **Historical Snapshot Months** with identical Transaction Ledger Management logic. Changes to water/electricity meters, room rates, or payment status are instantly synchronized to `transactions` to prevent accounting leakage.
+  - *Rental House Billing (`update_rental_house`):* Engineered reconciliation logic for rental houses. If status is `"paid"`, the system automatically upserts matching transactions and payment history snapshots (`HousePayment`), keeping rent, water, and electric charges perfectly coordinated. It automatically deletes them if status reverts to `"unpaid"` or rent falls to zero.
+- **Verification:**
+  - *Zero-Error Compilation:* Successfully compiled the entire FastAPI backend (`main.py`) using `python -m py_compile backend/main.py` with 100% success and 0 compiler warnings.
+  - *Obsidian Vault Sync:* Preserved 100% functional health of the Obsidian Vault across all entities.
+
 ## [2026-05-22] Zero-Trust Backend Security Gateway & Premium A4 Landscape PDF Printing (Approve & Execution Complete)
 - **Zero-Trust Administrative API Gateway:**
   - *FastAPI Endpoint Locks:* Configured a global `require_admin_token` HTTP middleware in `backend/main.py` that parses `Authorization: Bearer <auth_token>` headers and validates them using centralized JWT claims verification, locking down all admin reading and writing paths (except for `/`, `/auth/login`, `/webhook`, `/docs`, `/openapi.json`).

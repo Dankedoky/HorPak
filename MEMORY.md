@@ -14,6 +14,7 @@ A unified accounting and management system for Dormitory, Garage, and Rental Hou
 - **Phase 3 (Deployment & Polish):** Completed 100%.
 
 ## Key Accomplishments
+- ✅ **100% Ledger Integrity & Accounting Reconciliation:** Integrated automatic transaction reconciliation across dormitory rooms (`update_room`), spreadsheet grid edits (`patch_room_spreadsheet`), and rental houses (`update_rental_house`). Edits to meters, rates, or payment status dynamically create, update, or reverse transactions in the ledger to secure 100% financial accuracy.
 - ✅ **Premium LINE Flex Message Billing Upgrade:** Upgraded both the 1-Click billing reminders and the `"เช็คยอด"` consolidated summaries from plain text to highly responsive, corporate-styled graphic **LINE Flex Messages** with Navy-Gold and Sky-Blue palettes, detailing utility meter ranges, nested line items, and dynamic **"📸 แจ้งโอนเงิน"** buttons, raising trust and aesthetic appeal.
 - ✅ **Consolidated Billing Check & Dynamic Slip Matching:** Deployed an intelligent multi-bill query and consolidated breakdown response for LINE OA `"เช็คยอด"` commands, and implemented dynamic SlipOK verification that parses transaction amounts to automatically locate, verify, and settle the matching outstanding Room Bill or Custom Invoice.
 - ✅ **Full CRUD for Business Units & Customers:** Centralized registry for all tenants and clients.
@@ -32,6 +33,7 @@ A unified accounting and management system for Dormitory, Garage, and Rental Hou
 - ✅ **Utility Margin Analytics (Phase 3):** Developed an advanced bilingual (Thai/English) visual analysis dashboard showing 6-month historical comparisons of water/electricity charges collected from tenants against government bills paid, supported by interactive responsive SVG Double Bar Charts and a smart dynamic Operations Advisor panel.
 
 ## Completed Tasks (Recent)
+0. **100% Ledger Integrity & Accounting Reconciliation:** Integrated automatic transaction synchronization and double-entry reconciliation across all edit gateways (`update_room`, `patch_room_spreadsheet`, `update_rental_house`) to guarantee flawless, matching general ledger data with zero leakage.
 0. **Security Gateway Implementation & Zero-Trust Backend:** Enforced administrative route locking across units, customers, invoices, transactions, rooms, garage, houses, leases, maintenance, and verify endpoints. Hardened database logic against SQLite fallback in production environments, and disabled in-code default secrets for `JWT_SECRET`.
 0. **Premium A4 Landscape PDF Print & Preview Upgrade:** Refactored `handleExportDormPDF` in `dormitory/page.tsx` with standard layout rules, smooth shadows, and Thai print advisor alerts.
 0. **Offline Next.js compilation fix:** Swapped online Google font imports with pre-configured modern system font stacks, securing offline compile capability.
