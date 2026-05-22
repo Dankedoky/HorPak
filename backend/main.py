@@ -11,7 +11,7 @@ import models, schemas, database
 from auth import create_token, LoginRequest, get_current_user
 from database import engine, get_db
 from linebot.v3 import WebhookParser
-from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest, AsyncMessagingApiBlob
+from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest, AsyncMessagingApiBlob, FlexMessage
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
@@ -77,6 +77,278 @@ def get_current_billing_month(ref_date_str: str = None) -> str:
         first_of_this_month = ref_date.replace(day=1)
         prev_month_last_day = first_of_this_month - timedelta(days=1)
         return prev_month_last_day.strftime("%Y-%m")
+
+
+def create_dorm_bill_flex(room, current_month_key: str) -> dict:
+    import json
+    total_amount = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+    
+    parts = current_month_key.split("-")
+    display_month = f"{parts[1]}/{parts[0]}" if len(parts) == 2 else current_month_key
+    
+    body_contents = [
+        {
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {"type": "text", "text": "ผู้เช่า", "color": "#718096", "size": "sm"},
+                {"type": "text", "text": room.tenant or "ผู้เช่า", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
+            ]
+        },
+        {"type": "separator", "margin": "md"},
+        {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "lg",
+            "spacing": "sm",
+            "contents": [
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": "ค่าเช่าห้องพัก", "color": "#4A5568", "size": "sm"},
+                        {"type": "text", "text": f"{room.rate:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
+                    ]
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": f"ค่าน้ำประปา (มิเตอร์ {room.water_meter_prev} -> {room.water_meter})", "color": "#4A5568", "size": "xs", "wrap": True, "flex": 3},
+                        {"type": "text", "text": f"{room.water_cost:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 2}
+                    ]
+                },
+                {
+                    "type": "box",
+                    "layout": "horizontal",
+                    "contents": [
+                        {"type": "text", "text": f"ค่าไฟฟ้า (มิเตอร์ {room.electricity_meter_prev} -> {room.electricity_meter})", "color": "#4A5568", "size": "xs", "wrap": True, "flex": 3},
+                        {"type": "text", "text": f"{room.electric_cost:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end", "flex": 2}
+                    ]
+                }
+            ]
+        }
+    ]
+    
+    if room.cleaning_fee > 0:
+        body_contents[2]["contents"].append({
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {"type": "text", "text": "ค่าทำความสะอาด", "color": "#4A5568", "size": "sm"},
+                {"type": "text", "text": f"{room.cleaning_fee:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
+            ]
+        })
+        
+    if room.other_fee > 0:
+        body_contents[2]["contents"].append({
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {"type": "text", "text": "ค่าบริการอื่นๆ", "color": "#4A5568", "size": "sm"},
+                {"type": "text", "text": f"{room.other_fee:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
+            ]
+        })
+        
+    if room.fine_cost > 0:
+        body_contents[2]["contents"].append({
+            "type": "box",
+            "layout": "horizontal",
+            "contents": [
+                {"type": "text", "text": f"⚠️ ค่าปรับล่าช้า ({room.late_days} วัน)", "color": "#E53E3E", "size": "sm"},
+                {"type": "text", "text": f"{room.fine_cost:,.2f} บาท", "weight": "bold", "color": "#E53E3E", "size": "sm", "align": "end"}
+            ]
+        })
+        
+    body_contents.append({"type": "separator", "margin": "lg"})
+    body_contents.append({
+        "type": "box",
+        "layout": "horizontal",
+        "margin": "lg",
+        "contents": [
+            {"type": "text", "text": "ยอดรวมที่ต้องชำระ", "weight": "bold", "color": "#1A365D", "size": "md"},
+            {"type": "text", "text": f"{total_amount:,.2f} บาท", "weight": "bold", "color": "#E53E3E", "size": "lg", "align": "end"}
+        ]
+    })
+    
+    flex_data = {
+        "type": "bubble",
+        "styles": {
+            "header": {"backgroundColor": "#1A365D"}
+        },
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "ใบแจ้งยอดค่าเช่าหอพัก", "weight": "bold", "color": "#FFFFFF", "size": "lg"},
+                {"type": "text", "text": f"ห้อง {room.number} | รอบบิล {display_month}", "color": "#CBD5E0", "size": "sm", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": body_contents
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xs",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "📌 ชำระภายในวันที่ 5 ของเดือน หลังจากนี้มีค่าปรับวันละ 100 บาท",
+                    "color": "#E53E3E",
+                    "size": "xs",
+                    "wrap": True,
+                    "align": "center",
+                    "weight": "bold"
+                },
+                {
+                    "type": "text",
+                    "text": "🏦 โอนเงินเข้าบัญชีธนาคารแล้วส่งสลิปเพื่อตัดจ่ายอัตโนมัติค่ะ",
+                    "color": "#718096",
+                    "size": "xxs",
+                    "align": "center",
+                    "margin": "xs"
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#1A365D",
+                    "action": {
+                        "type": "message",
+                        "label": "📸 แจ้งโอนเงิน",
+                        "text": "แจ้งโอนเงิน"
+                    },
+                    "margin": "md"
+                }
+            ]
+        }
+    }
+    return flex_data
+
+
+def create_consolidated_bill_flex(tenant_name: str, room_number: str, unpaid_items: list, grand_total: float) -> dict:
+    import json
+    
+    body_contents = [
+        {
+            "type": "text",
+            "text": "รายการยอดค้างชำระสะสมในระบบของคุณมีดังนี้ค่ะ:",
+            "color": "#4A5568",
+            "size": "sm",
+            "wrap": True
+        },
+        {"type": "separator", "margin": "md"}
+    ]
+    
+    for idx, item in enumerate(unpaid_items, 1):
+        item_box_contents = [
+            {
+                "type": "text",
+                "text": f"[{idx}] {item['title']}",
+                "weight": "bold",
+                "color": "#2B6CB0",
+                "size": "sm",
+                "wrap": True
+            }
+        ]
+        
+        detail_box = {
+            "type": "box",
+            "layout": "vertical",
+            "margin": "sm",
+            "spacing": "xxs",
+            "contents": []
+        }
+        for d in item["details"]:
+            detail_box["contents"].append({
+                "type": "text",
+                "text": d,
+                "color": "#718096",
+                "size": "xs",
+                "margin": "xs"
+            })
+            
+        item_box_contents.append(detail_box)
+        item_box_contents.append({
+            "type": "box",
+            "layout": "horizontal",
+            "margin": "xs",
+            "contents": [
+                {"type": "text", "text": "ยอดที่ต้องชำระ", "color": "#718096", "size": "xs"},
+                {"type": "text", "text": f"{item['amount']:,.2f} บาท", "weight": "bold", "color": "#2D3748", "size": "sm", "align": "end"}
+            ]
+        })
+        
+        body_contents.append({
+            "type": "box",
+            "layout": "vertical",
+            "margin": "md",
+            "spacing": "xs",
+            "contents": item_box_contents
+        })
+        
+        if idx < len(unpaid_items):
+            body_contents.append({"type": "separator", "margin": "md"})
+            
+    body_contents.append({"type": "separator", "margin": "lg"})
+    body_contents.append({
+        "type": "box",
+        "layout": "horizontal",
+        "margin": "lg",
+        "contents": [
+            {"type": "text", "text": "ยอดรวมสุทธิทั้งหมด", "weight": "bold", "color": "#2B6CB0", "size": "md"},
+            {"type": "text", "text": f"{grand_total:,.2f} บาท", "weight": "bold", "color": "#E53E3E", "size": "lg", "align": "end"}
+        ]
+    })
+    
+    flex_data = {
+        "type": "bubble",
+        "styles": {
+            "header": {"backgroundColor": "#2B6CB0"}
+        },
+        "header": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": [
+                {"type": "text", "text": "สรุปยอดค้างชำระทั้งหมด", "weight": "bold", "color": "#FFFFFF", "size": "lg"},
+                {"type": "text", "text": f"คุณ {tenant_name} | ห้อง {room_number}", "color": "#E2E8F0", "size": "sm", "margin": "xs"}
+            ]
+        },
+        "body": {
+            "type": "box",
+            "layout": "vertical",
+            "contents": body_contents
+        },
+        "footer": {
+            "type": "box",
+            "layout": "vertical",
+            "spacing": "xs",
+            "contents": [
+                {
+                    "type": "text",
+                    "text": "💡 ท่านสามารถเลือกโอนชำระเงินยอดใดก่อนก็ได้ตามสะดวกนะคะ ระบบ AI จะสแกนตัดยอดจ่ายบิลใบนั้นให้ทันทีค่ะ",
+                    "color": "#718096",
+                    "size": "xs",
+                    "wrap": True,
+                    "align": "center"
+                },
+                {
+                    "type": "button",
+                    "style": "primary",
+                    "color": "#2B6CB0",
+                    "action": {
+                        "type": "message",
+                        "label": "📸 แจ้งโอนเงิน",
+                        "text": "แจ้งโอนเงิน"
+                    },
+                    "margin": "md"
+                }
+            ]
+        }
+    }
+    return flex_data
 
 
 # ==========================================
@@ -884,37 +1156,49 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 )
                 continue
                 
-            # If room is found, check if it's unpaid
-            if room.payment_status == "paid":
-                # Check for other unpaid custom invoices
-                customer = db.query(models.Customer).filter(models.Customer.line_user_id == user_id).first()
-                unpaid_invoice = None
-                if customer:
-                    unpaid_invoice = db.query(models.Invoice).filter(
-                        models.Invoice.customer_id == customer.id,
-                        models.Invoice.status == models.InvoiceStatus.UNPAID
-                    ).first()
+            # Find customer details for this user
+            customer = db.query(models.Customer).filter(models.Customer.line_user_id == user_id).first()
+            if not customer and room.tenant:
+                customer = db.query(models.Customer).filter(models.Customer.name == room.tenant).first()
+                
+            # Gather all unpaid bills/invoices to match dynamically
+            unpaid_bills = []
+            
+            if room.payment_status != "paid":
+                room_total = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+                unpaid_bills.append({
+                    "type": "dorm",
+                    "amount": float(room_total),
+                    "title": f"ค่าห้องพักประจำเดือน (ห้อง {room.number})",
+                    "obj": room
+                })
+                
+            if customer:
+                invoices = db.query(models.Invoice).filter(
+                    models.Invoice.customer_id == customer.id,
+                    models.Invoice.status == models.InvoiceStatus.UNPAID
+                ).all()
+                for inv in invoices:
+                    unpaid_bills.append({
+                        "type": "invoice",
+                        "amount": float(inv.amount),
+                        "title": f"บิลพิเศษ: {inv.title}",
+                        "obj": inv
+                    })
                     
-                if not unpaid_invoice:
-                    reply_text = (
-                        f"💡 ระบบพบว่าห้องพัก หอ {room.dorm_key.replace('_', '/')} ห้อง {room.number} ของคุณ ได้รับการชำระยอดเงินประจำเดือนนี้เรียบร้อยแล้วค่ะ!\n\n"
-                        f"หากภาพนี้เป็นหลักฐานสลิปสำหรับค่าใช้จ่ายอื่นๆ หรือรายการค้างจ่ายเพิ่มเติม เจ้าหน้าที่แอดมินจะรีบตรวจสอบสลิปและบันทึกยอดเข้าระบบบัญชีให้คุณโดยเร็วที่สุดค่ะ ขอบพระคุณค่ะ 🙏😊"
+            if not unpaid_bills:
+                reply_text = (
+                    f"💡 ระบบพบว่าคุณไม่มียอดค้างชำระในขณะนี้ค่ะ!\n"
+                    f"ห้องพัก หอ {room.dorm_key.replace('_', '/')} ห้อง {room.number} ของคุณ ได้รับการชำระเรียบร้อยแล้วค่ะ\n\n"
+                    f"หากรูปภาพนี้เป็นหลักฐานสลิปสำหรับค่าใช้จ่ายอื่น หรือยอดเพิ่มเติมนอกระบบ เจ้าหน้าที่แอดมินจะตรวจสอบสลิปและดำเนินการบันทึกเข้าระบบบัญชีให้ภายหลังนะคะ ขอบพระคุณค่ะ 🙏😊"
+                )
+                await get_line_bot_api().reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[TextMessage(text=reply_text)]
                     )
-                    await get_line_bot_api().reply_message(
-                        ReplyMessageRequest(
-                            reply_token=event.reply_token,
-                            messages=[TextMessage(text=reply_text)]
-                        )
-                    )
-                    continue
-                else:
-                    expected_amount = unpaid_invoice.amount
-                    payment_type = "invoice"
-                    target_obj = unpaid_invoice
-            else:
-                expected_amount = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
-                payment_type = "dorm"
-                target_obj = room
+                )
+                continue
 
             # 2. Proceed with download and SlipOK API validation
             try:
@@ -929,8 +1213,17 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 import httpx
                 import random
                 
+                matched_bill = None
+                amount_paid = 0.0
+                ref_no = ""
+                sender_name = room.tenant or "ผู้เช่า"
+                receiver_name = "บริษัท Sovereign Volt จำกัด"
+                trans_date_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                is_sandbox = True
+                
                 if slipok_api_key and slipok_api_key != "your_slipok_api_key_here":
-                    # Production Mode: call SlipOK API using files upload
+                    # Production Mode: Call SlipOK API using files upload (no amount parameter in payload for dynamic matching)
+                    is_sandbox = False
                     url = f"https://api.slipok.com/api/line/apikey/{slipok_branch_id}"
                     headers = {
                         "x-authorization": slipok_api_key
@@ -939,8 +1232,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                         "files": ("slip.jpg", img_bytes, "image/jpeg")
                     }
                     payload = {
-                        "log": "true",
-                        "amount": float(expected_amount)
+                        "log": "true"
                     }
                     
                     async with httpx.AsyncClient() as client:
@@ -955,7 +1247,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                     is_valid = success and (data.get("success", True) if isinstance(data, dict) else True)
                     
                     if not is_valid:
-                        error_msg = res_json.get("message") or (data.get("message") if isinstance(data, dict) else None) or "สลิปไม่ผ่านการตรวจสอบ"
+                        error_msg = res_json.get("message") or (data.get("message") if isinstance(data, dict) else None) or "สลิปไม่ผ่านการตรวจสอบความถูกต้อง"
                         raise Exception(error_msg)
                         
                     ref_no = data.get("transRef")
@@ -966,24 +1258,32 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                     existing_tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_no).first()
                     if existing_tx:
                         reply_text = (
-                            "❌ ระบบไม่สามารถยืนยันสลิปนี้ได้ เนื่องจากสลิปนี้เคยถูกส่งเพื่อยืนยันยอดเงินไปแล้ว หรือข้อมูลไม่สอดคล้องกับระบบของหอพัก กรุณาตรวจสอบความถูกต้องหรือส่งข้อความคุยกับแอดมินโดยตรงค่ะ"
+                            "❌ ระบบไม่สามารถยืนยันสลิปนี้ได้ เนื่องจากสลิปโอนเงินนี้เคยถูกส่งเพื่อยืนยันยอดเงินไปแล้วในระบบ เพื่อความปลอดภัยป้องกันการตรวจจับซ้ำ กรุณาตรวจสอบหรือติดต่อแอดมินโดยตรงค่ะ"
                         )
                         await get_line_bot_api().reply_message(
                             ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
                         )
                         continue
                         
-                    sender_name = data.get("sender", {}).get("displayName") or data.get("sender", {}).get("name") or "ผู้เช่าในระบบ"
+                    sender_name = data.get("sender", {}).get("displayName") or data.get("sender", {}).get("name") or room.tenant or "ผู้เช่าในระบบ"
                     receiver_name = data.get("receiver", {}).get("displayName") or data.get("receiver", {}).get("name") or "หอพัก/บริษัท"
-                    amount_paid = data.get("amount", 0.0)
+                    amount_paid = float(data.get("amount", 0.0))
                     trans_date_str = data.get("transDate") or datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
-                    # Verify Amount
-                    if abs(float(amount_paid) - float(expected_amount)) > 0.01:
-                        # Incorrect amount
+                    # Search and match the amount from slip against outstanding bills
+                    for bill in unpaid_bills:
+                        if abs(amount_paid - bill["amount"]) <= 0.01:
+                            matched_bill = bill
+                            break
+                            
+                    if not matched_bill:
+                        # Incorrect amount or doesn't match any bill
+                        unpaid_details = "\n".join([f"- {b['title']}: {b['amount']:,.2f} บาท" for b in unpaid_bills])
                         reply_text = (
-                            f"❌ ยอดเงินในสลิปจริง ({amount_paid:,.2f} บาท) ไม่สอดคล้องกับยอดเงินที่ต้องชำระในระบบ ({expected_amount:,.2f} บาท)\n"
-                            "กรุณาตรวจสอบยอดชำระหรือติดต่อแอดมินโดยตรงค่ะ"
+                            f"❌ ระบบสแกนพบลดสลิปโอนเงินจริงที่ยอด {amount_paid:,.2f} บาท\n"
+                            f"แต่ยอดเงินดังกล่าวไม่สอดคล้องกับรายการค้างชำระใบใดเลยของคุณในระบบค่ะ\n\n"
+                            f"📋 รายการที่คุณค้างชำระในขณะนี้:\n{unpaid_details}\n\n"
+                            f"กรุณาโอนเงินให้ตรงตามยอดบิล หรือติดต่อแอดมินโดยตรงเพื่อปรับปรุงยอดค่ะ 🙏😊"
                         )
                         await get_line_bot_api().reply_message(
                             ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
@@ -991,71 +1291,93 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                         continue
                 else:
                     # Sandbox Fallback mode (simulated success)
+                    # For sandbox, if there's only 1 unpaid bill, match it. 
+                    # If there are multiple, match the first one (room bill preferred) and display sandbox warning.
+                    matched_bill = unpaid_bills[0]
+                    amount_paid = matched_bill["amount"]
+                    
                     ref_no = f"SIM-SLIP-{datetime.now().strftime('%Y%m%d')}-" + "".join([str(random.randint(0, 9)) for _ in range(6)])
+                    while db.query(models.Transaction).filter(models.Transaction.reference_id == ref_no).first():
+                        ref_no = f"SIM-SLIP-{datetime.now().strftime('%Y%m%d')}-" + "".join([str(random.randint(0, 9)) for _ in range(6)])
+                        
                     sender_name = room.tenant or "ผู้เช่าจำลอง (โหมดทดสอบ)"
-                    receiver_name = "บริษัท หอพักเครือ Sovereign จำกัด"
-                    amount_paid = expected_amount
+                    receiver_name = "บริษัท หอพัก Sovereign (โหมดทดสอบ)"
                     trans_date_str = datetime.now().strftime("%d/%m/%Y %H:%M")
                     
                 # Bookkeeping & Saving payment status
                 current_month_key = get_current_billing_month(trans_date_str)
+                payment_type = matched_bill["type"]
+                expected_amount = matched_bill["amount"]
+                target_obj = matched_bill["obj"]
+                
                 if payment_type == "dorm":
-                    room.payment_status = "paid"
-                    room.payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+                    target_obj.payment_status = "paid"
+                    target_obj.payment_date = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                     
                     db.add(models.Transaction(
                         type=models.TransactionType.INCOME,
                         amount=expected_amount,
-                        description=f"ค่าเช่าห้อง {room.number} รอบ {current_month_key} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})",
+                        description=f"ค่าเช่าห้อง {target_obj.number} รอบ {current_month_key} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})",
                         reference_id=ref_no,
                         unit_id=(lambda u: u.id if u else None)(db.query(models.BusinessUnit).filter(models.BusinessUnit.type == models.UnitType.DORMITORY).first())
                     ))
                     
-                    db.add(models.DormPayment(
-                        room_id=room.id,
-                        month=current_month_key,
-                        amount=room.rate,
-                        water_cost=room.water_cost,
-                        electric_cost=room.electric_cost,
-                        cleaning_fee=room.cleaning_fee,
-                        other_fee=room.other_fee,
-                        fine_cost=room.fine_cost,
-                        payment_status="paid",
-                        paid_at=datetime.utcnow()
-                    ))
+                    # Add DormPayment if not already exists for the month
+                    if not db.query(models.DormPayment).filter(models.DormPayment.room_id == target_obj.id, models.DormPayment.month == current_month_key).first():
+                        db.add(models.DormPayment(
+                            room_id=target_obj.id,
+                            month=current_month_key,
+                            amount=target_obj.rate,
+                            water_cost=target_obj.water_cost,
+                            electric_cost=target_obj.electric_cost,
+                            cleaning_fee=target_obj.cleaning_fee,
+                            other_fee=target_obj.other_fee,
+                            fine_cost=target_obj.fine_cost,
+                            payment_status="paid",
+                            paid_at=datetime.utcnow()
+                        ))
                     
                 else:
                     # Invoice type
-                    unpaid_invoice.status = models.InvoiceStatus.PAID
+                    target_obj.status = models.InvoiceStatus.PAID
                     db.add(models.Transaction(
                         type=models.TransactionType.INCOME,
                         amount=expected_amount,
-                        description=f"ชำระบิลเรียกเก็บเงิน: {unpaid_invoice.title} #{unpaid_invoice.id} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})",
+                        description=f"ชำระบิลเรียกเก็บเงิน: {target_obj.title} #{target_obj.id} (ผู้โอน: {sender_name}, อ้างอิงสลิป: {ref_no})",
                         reference_id=ref_no,
-                        unit_id=unpaid_invoice.unit_id
+                        unit_id=target_obj.unit_id,
+                        customer_id=target_obj.customer_id
                     ))
                     
                 db.commit()
                 
                 # Notify Owner about the successful payment
                 notify_msg = (
-                    f"🔔 ยืนยันยอดชำระเงินอัตโนมัติ! 🔔\n"
+                    f"🔔 ยืนยันยอดชำระเงินอัตโนมัติ (Dynamic Match)! 🔔\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🏢 หอพัก/ห้อง: ห้อง {room.number}\n"
+                    f"🚪 หอพัก/ห้อง: ห้อง {room.number}\n"
                     f"👤 ผู้เช่า: {room.tenant}\n"
-                    f"💰 ยอดเงิน: {expected_amount:,.2f} บาท\n"
+                    f"🧾 บิลที่ชำระ: {matched_bill['title']}\n"
+                    f"💰 ยอดเงินชำระ: {expected_amount:,.2f} บาท\n"
                     f"👤 ผู้โอน: {sender_name}\n"
                     f"🔢 รหัสอ้างอิง: {ref_no}\n"
                     f"━━━━━━━━━━━━━━━━━━\n"
-                    f"ระบบได้บันทึกยอดและออกใบรับชำระเงินเรียบร้อยแล้วค่ะ ✨"
+                    f"ระบบได้จับคู่ยอดอัตโนมัติ บันทึกบัญชี และออกใบเสร็จเรียบร้อยแล้วค่ะ ✨"
                 )
                 await send_financial_alert_to_owner(notify_msg)
                 
-                # Reply to Tenant with Template C Successful reply
+                # Reply to Tenant with template
+                sandbox_note = "\n⚠️ (โหมดทดสอบ Sandbox) ระบบทำการจับคู่จำลองบิลค้างชำระให้อัตโนมัติ" if is_sandbox and len(unpaid_bills) > 1 else ""
+                
                 reply_text = (
-                    f"🎉 ระบบตรวจสอบสลิปสำเร็จ! ยอดโอน {amount_paid:,.2f} บาท "
-                    f"โอนเมื่อ {trans_date_str} ได้รับการบันทึกในบัญชีเรียบร้อยแล้วค่ะ "
-                    f"ขอบพระคุณที่ชำระค่าเช่าตามเวลานะคะ 🙏😊"
+                    f"🎉 ระบบจับคู่และชำระบิลอัตโนมัติสำเร็จ!\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"🧾 รายการ: {matched_bill['title']}\n"
+                    f"💰 ยอดเงิน: {amount_paid:,.2f} บาท\n"
+                    f"📅 วันเวลาโอน: {trans_date_str}\n"
+                    f"🔢 รหัสสลิป: {ref_no}\n"
+                    f"━━━━━━━━━━━━━━━━━━\n"
+                    f"ยอดเงินของคุณได้รับการชำระและตัดยอดออกจากบิลเรียบร้อยแล้วค่ะ ขอบพระคุณค่ะ 🙏😊{sandbox_note}"
                 )
                 await get_line_bot_api().reply_message(
                     ReplyMessageRequest(
@@ -1066,9 +1388,10 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 
             except Exception as e:
                 db.rollback()
-                # If SlipOK fails or throws error, reply with Template C Failed reply
                 reply_text = (
-                    "❌ ระบบไม่สามารถยืนยันสลิปนี้ได้ เนื่องจากสลิปนี้เคยถูกส่งเพื่อยืนยันยอดเงินไปแล้ว หรือข้อมูลไม่สอดคล้องกับระบบของหอพัก กรุณาตรวจสอบความถูกต้องหรือส่งข้อความคุยกับแอดมินโดยตรงค่ะ"
+                    f"❌ ระบบไม่สามารถยืนยันสลิปนี้ได้ เนื่องจากเกิดข้อผิดพลาดในการตรวจสอบหรือบันทึกบัญชีค่ะ\n\n"
+                    f"รายละเอียดข้อผิดพลาด: {str(e)}\n\n"
+                    f"กรุณาตรวจสอบความถูกต้องของสลิป หรือติดต่อส่งข้อมูลให้แอดมินโดยตรงเพื่อช่วยเหลือค่ะ 🙏😊"
                 )
                 await get_line_bot_api().reply_message(
                     ReplyMessageRequest(
@@ -1301,18 +1624,75 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
 
 
         if text == "เช็คยอด":
+            # 1. Search for customer by LINE ID
             customer = db.query(models.Customer).filter(models.Customer.line_user_id == user_id).first()
-            if not customer:
-                reply_text = "ขออภัยครับ ไม่พบข้อมูลของคุณในระบบ กรุณาแจ้งแอดมินเพื่อผูกบัญชี LINE ครับ"
+            
+            # 2. Search for room by LINE ID or customer name match
+            room = find_room_by_line_user_id(user_id, db)
+            if not customer and room and room.tenant:
+                customer = db.query(models.Customer).filter(models.Customer.name == room.tenant).first()
+                
+            if not customer and not room:
+                reply_message = TextMessage(text="❌ ขออภัยค่ะ ไม่พบข้อมูลห้องพักหรือข้อมูลของคุณในระบบ กรุณาติดต่อแอดมินเพื่อทำการผูกบัญชี LINE ค่ะ 🙏😊")
             else:
-                unpaid_invoices = [i for i in customer.invoices if i.status == models.InvoiceStatus.UNPAID]
-                if not unpaid_invoices:
-                    reply_text = f"สวัสดีครับคุณ {customer.name}\nคุณไม่มียอดค้างชำระครับ"
+                tenant_name = customer.name if customer else (room.tenant if room else "ผู้เช่า")
+                unpaid_items = []
+                
+                # Check for unpaid Room Bill
+                if room and room.payment_status != "paid":
+                    room_total = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+                    unpaid_items.append({
+                        "type": "room",
+                        "title": f"🚪 ค่าห้องพักประจำเดือน (ห้อง {room.number})",
+                        "amount": room_total,
+                        "details": [
+                            f"• ค่าเช่าห้อง: {room.rate:,.2f} บาท",
+                            f"• ค่าน้ำประปา: {room.water_cost:,.2f} บาท",
+                            f"• ค่าไฟฟ้า: {room.electric_cost:,.2f} บาท",
+                            f"• ค่าบริการอื่นๆ/ค่าปรับ: {(room.cleaning_fee + room.other_fee + room.fine_cost):,.2f} บาท"
+                        ]
+                    })
+                
+                # Check for other unpaid Custom Invoices
+                if customer:
+                    unpaid_invoices = db.query(models.Invoice).filter(
+                        models.Invoice.customer_id == customer.id,
+                        models.Invoice.status == models.InvoiceStatus.UNPAID
+                    ).all()
+                    for inv in unpaid_invoices:
+                        unpaid_items.append({
+                            "type": "invoice",
+                            "title": f"🧾 บิลพิเศษ: {inv.title}",
+                            "amount": inv.amount,
+                            "details": [
+                                f"• เลขที่บิล: #{inv.id}",
+                                f"• รายละเอียด: {inv.title}"
+                            ]
+                        })
+                
+                if not unpaid_items:
+                    reply_text = (
+                        f"สวัสดีค่ะ คุณ {tenant_name} 🏠✨\n\n"
+                        f"🎉 ยินดีด้วยค่ะ! คุณไม่มียอดค้างชำระในระบบขณะนี้ค่ะ\n"
+                        f"ขอบพระคุณที่เป็นลูกบ้านที่ดีเสมอมานะคะ รักษาสุขภาพด้วยค่ะ 🙏😊"
+                    )
+                    reply_message = TextMessage(text=reply_text)
                 else:
-                    total = sum(i.amount for i in unpaid_invoices)
-                    details = "\n".join([f"- {i.title}: {i.amount:,.2f} บาท" for i in unpaid_invoices])
-                    reply_text = f"สวัสดีครับคุณ {customer.name}\nยอดค้างชำระทั้งหมด: {total:,.2f} บาท\n\nรายละเอียด:\n{details}"
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+                    import json
+                    grand_total = sum(item["amount"] for item in unpaid_items)
+                    room_number = room.number if room else "-"
+                    flex_payload = create_consolidated_bill_flex(tenant_name, room_number, unpaid_items, grand_total)
+                    reply_message = FlexMessage(
+                        alt_text=f"สรุปยอดค้างชำระทั้งหมดของคุณ {tenant_name}",
+                        contents=FlexMessage.from_json(json.dumps(flex_payload))
+                    )
+                    
+            await get_line_bot_api().reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[reply_message]
+                )
+            )
             continue
 
         # 🛡️ Admin Security Check
@@ -1395,39 +1775,18 @@ async def send_billing_reminder(send_line: bool = False, db: Session = Depends(g
                 continue
                 
             try:
-                total_amount = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
-                bill_message = (
-                    f"🧾 ใบแจ้งยอดค่าเช่าหอพัก 🧾\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"🏢 ห้องพัก: ห้อง {room.number}\n"
-                    f"👤 ผู้เช่า: {room.tenant}\n"
-                    f"📅 ประจำรอบบิล: {datetime.now().strftime('%m/%Y')}\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"💵 ค่าเช่าห้อง: {room.rate:,.2f} บาท\n"
-                    f"💧 ค่าน้ำประปา: {room.water_cost:,.2f} บาท\n"
-                    f"   (มิเตอร์ {room.water_meter_prev} -> {room.water_meter})\n"
-                    f"⚡️ ค่าไฟฟ้า: {room.electric_cost:,.2f} บาท\n"
-                    f"   (มิเตอร์ {room.electricity_meter_prev} -> {room.electricity_meter})\n"
-                )
-                if room.cleaning_fee > 0:
-                    bill_message += f"🧹 ค่าทำความสะอาด: {room.cleaning_fee:,.2f} บาท\n"
-                if room.other_fee > 0:
-                    bill_message += f"📦 ค่าบริการอื่นๆ: {room.other_fee:,.2f} บาท\n"
-                if room.fine_cost > 0:
-                    bill_message += f"⚠️ ค่าปรับล่าช้า ({room.late_days} วัน): {room.fine_cost:,.2f} บาท\n"
-                    
-                bill_message += (
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"💰 ยอดรวมที่ต้องชำระ: {total_amount:,.2f} บาท\n"
-                    f"━━━━━━━━━━━━━━━━━━\n"
-                    f"📌 ชำระภายในวันที่ 5 ของเดือน หลังจากนี้มีค่าปรับวันละ 100 บาท\n"
-                    f"🏦 วิธีการชำระเงิน:\n"
-                    f"กรุณาโอนเงินเข้าบัญชีธนาคาร และส่งสลิปโอนเงินเข้ามาในแชท LINE OA นี้ เพื่อให้ระบบสแกนสลิปและปรับปรุงยอดโดยอัตโนมัติครับ 🙏"
-                )
+                import json
+                current_month_key = get_current_billing_month()
+                flex_payload = create_dorm_bill_flex(room, current_month_key)
                 
                 await get_line_bot_api().push_message(PushMessageRequest(
                     to=line_user_id,
-                    messages=[TextMessage(text=bill_message)]
+                    messages=[
+                        FlexMessage(
+                            alt_text=f"ใบแจ้งยอดค่าเช่าห้อง {room.number} ประจำรอบบิล {current_month_key}",
+                            contents=FlexMessage.from_json(json.dumps(flex_payload))
+                        )
+                    ]
                 ))
                 success_count += 1
             except Exception as e:

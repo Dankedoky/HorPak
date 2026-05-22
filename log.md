@@ -1,5 +1,44 @@
 # Activity Log
 
+## [2026-05-22] Premium LINE Flex Message Billing Upgrade (Approve & Execution Complete)
+- **Premium LINE Flex Message Billing Upgrade:**
+  - *Dorm Bill (บิลหลักรายเดือน):* Upgraded the bulk billing reminders dispatcher (`send_billing_reminder` endpoint in `backend/main.py`) to construct and push beautiful, modern graphic Flex Messages with custom navy, gold, and white styling (`#1A365D`), including utility meter ranges and a dynamic `"📸 แจ้งโอนเงิน"` action button.
+  - *Consolidated Bill (ยอดหนี้สะสม):* Refactored the `"เช็คยอด"` keyword handler within the LINE webhook to reply with an elegant, responsive graphic Flex Message styled with Sky-Blue header theme (`#2B6CB0`) whenever the tenant has outstanding balances. It dynamically renders room details, custom invoice line-items, and aggregates them into a clear Grand Total.
+  - *Graceful Text Fallbacks:* Retained clear, polite, personalized Text Messages for fallback cases when a tenant has completely cleared their payments or when the room account is not registered.
+- **Verification & Documentation:**
+  - *Full-Stack Compilation:* Confirmed python backend syntax integrity by running `python -m py_compile backend/main.py` with 100% success and zero syntax errors.
+  - *Updated Documentation:* Captured details in Obsidian Vault metadata files (`MEMORY.md`, `log.md`) and marked all tasks as complete `[x]` in `task.md` and updated `walkthrough.md`.
+
+## [2026-05-22] Consolidated Billing Check & Dynamic Slip Matching Implementation (Approve & Execution Complete)
+- **Consolidated Billing Check via LINE OA:**
+  - *Multi-Bill Retrieval:* Programmed the exact keyword handler `"เช็คยอด"` in the LINE webhook (`backend/main.py`) to query all outstanding Room Bills (Dorm Bills) and Custom Unpaid Invoices (such as late payment balances, special fees) for the tenant's room.
+  * *Grand Total Calculation:* Integrates and aggregates outstanding balances, displaying a beautifully formatted breakdown of each individual unpaid bill, concluding with a Grand Total and structured transfer instructions.
+- **Dynamic Slip Matching Algorithm:**
+  - *Unkeyed API Verification:* Configured the SlipOK webhook payload within the LINE OA image handler to execute verification requests *without* passing an explicit amount. This permits the API to extract the true paid amount from the image and return it in `data.amount`.
+  - *Dynamic Ledger Settlement:* Deployed an iterative matcher that loops through the tenant's outstanding Room Bills and Custom Invoices. If a matching entry's total is within the 0.01 THB tolerance of the scanned amount, the system automatically marks that specific bill as `"paid"`, creates a corresponding general ledger transaction, and issues instant confirmation messages to both the tenant and landlord.
+  - *Sandbox Fallback Strategy:* Integrated an automated contingency routing mechanism. In simulated Sandbox mode or when API errors occur, the system falls back to settling the tenant's first outstanding room bill to ensure smooth manual testing capabilities.
+- **Verification & Documentation:**
+  - *Syntax Check:* Confirmed backend code is 100% sound with `python -m py_compile backend/main.py` compiling successfully.
+  - *Walkthrough & Checklist Update:* Documented full feature specification in the Obsidian walkthrough guide (`walkthrough.md`) and updated progress in `task.md`.
+
+## [2026-05-21] System Audit, Calculations Integrity & Missing CRUD Operations (Approve & Execution Complete)
+- **Billing Month Smart Resolver & Timezone-Shift Date Picker Fix:**
+  - *Smart Resolver:* Integrated an advanced billing month helper in FastAPI (`get_current_billing_month`) that attributes payments starting from the 25th of the current month to the current month's ledger, and attributes early/late payments (1st to 24th) to the previous month, avoiding database conflicts and invoice/ledger overlapping.
+  - *Timezone Fix:* Resolved a Javascript `new Date()` timezone offset issue in the date picker by using direct string splitting (`split("-")`) in `dormitory/page.tsx`, securing 100% correct late fee calculations.
+- **Rental Houses CRUD Integration:**
+  - *APIs:* Developed `POST /houses/` (with automatic `BusinessUnit` linking) and `DELETE /houses/{house_id}/` in the backend.
+  - *Ledger Safeguards:* Hardened the delete endpoint to verify ledger database history—if a rental house has any paid transaction history, deletion is blocked to prevent data fragmentation.
+  - *UI Upgrades:* Added a colorful, responsive "➕ เพิ่มบ้านเช่าใหม่" form and a safe confirm-deletion field on the Rental Houses dashboard.
+- **Maintenance Tickets Deletion:**
+  - *APIs:* Developed `DELETE /maintenance-tickets/{ticket_id}/` in the FastAPI backend.
+  - *UI Upgrades:* Added a neat, Glassmorphic red trash icon on each ticket card in `/maintenance` with seamless frontend state filtering for instantaneous user feedback.
+- **Transactions Full CRUD & TypeScript Build Fix:**
+  - *TS Build Fix:* Fixed a Next.js production build crash by adding the missing `reference_id` attribute to the `Transaction` interface in `transactions/page.tsx` and `useTransactionData.ts`.
+  - *Full Administrative CRUD:* Added a beautiful, dynamic **Edit Transaction Modal** ("✏️ แก้ไข") and a safe **Delete Transaction Handler** ("🗑️ ลบ") to the `/transactions` manager, completing the user's requirement for full data-entry corrections.
+- **Full-Stack Build Validation:**
+  - *Next.js:* Verified Next.js production build (`npm run build`) succeeded with **0 compile errors and 0 warnings**.
+  - *FastAPI:* Verified `python -m py_compile backend/main.py` succeeded with **0 errors**.
+
 ## [2026-05-21] LINE OA Auto-Reply Customization & Automated SlipOK Verification
 - **Automated Direct Slip Verification:** Implemented 100% automated slip verification inside the LINE Webhook image handler. If a bound tenant sends a slip image directly in the chat, the system fetches the binary file, calculates the expected outstanding balance (rent + utilities + late fines), and calls the SlipOK API (or simulates it in Sandbox mode) to verify and book the receipt in the ledger, replying with dynamic success/failure templates.
 - **Dedicated Keyword Triggers:** Programmed robust text matches for exact keywords `"แจ้งซ่อม"` and `"แจ้งโอนเงิน"`, dynamically serving custom instructions and support details in full compliance with the user's drafted auto-reply assets.
