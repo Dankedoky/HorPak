@@ -114,6 +114,15 @@ export default function UtilitiesSpreadsheetPage() {
   const [formVacant, setFormVacant] = useState<string>("");
   const [formStatus, setFormStatus] = useState<string>("unpaid");
 
+  // Floating HTML Glassmorphic Tooltip state
+  const [trendTooltip, setTrendTooltip] = useState<{
+    month: string;
+    electricity: number;
+    water: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
   // Generate last 12 months list dynamically ( Thai context, local time )
   useEffect(() => {
     const list: string[] = [];
@@ -817,13 +826,13 @@ export default function UtilitiesSpreadsheetPage() {
                 </div>
 
                 {/* SVG Polyline Chart */}
-                <div className="overflow-x-auto">
+                <div className="overflow-x-auto relative">
                   <svg
                     viewBox={`0 0 ${chartW} ${chartH}`}
-                    className="w-full"
+                    className="w-full overflow-visible"
                     style={{ minWidth: 700 }}
                   >
-                    {/* Background Gradients definitions */}
+                    {/* Background Gradients & Glow definitions */}
                     <defs>
                       <linearGradient id="chartElecGrad" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="0%" stopColor="#f59e0b" stopOpacity="0.25" />
@@ -833,6 +842,12 @@ export default function UtilitiesSpreadsheetPage() {
                         <stop offset="0%" stopColor="#0ea5e9" stopOpacity="0.25" />
                         <stop offset="100%" stopColor="#0ea5e9" stopOpacity="0" />
                       </linearGradient>
+                      <filter id="elecGlow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="4" stdDeviation="4.5" floodColor="#f59e0b" floodOpacity="0.25" />
+                      </filter>
+                      <filter id="waterGlow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="4" stdDeviation="4.5" floodColor="#0ea5e9" floodOpacity="0.25" />
+                      </filter>
                     </defs>
 
                     {/* Y-Axis Grid Lines */}
@@ -847,6 +862,7 @@ export default function UtilitiesSpreadsheetPage() {
                             y2={y}
                             stroke="#f1f5f9"
                             strokeWidth="1"
+                            strokeDasharray={i > 0 && i < 4 ? "4 4" : "0"}
                           />
                           <text
                             x={paddingX - 12}
@@ -898,7 +914,7 @@ export default function UtilitiesSpreadsheetPage() {
                           {/* Water Area */}
                           <polygon points={waterAreaStr} fill="url(#chartWaterGrad)" />
 
-                          {/* X-Axis labels */}
+                          {/* X-Axis labels & Grid lines */}
                           {elecPoints.map((p, i) => (
                             <g key={i}>
                               <line
@@ -906,8 +922,9 @@ export default function UtilitiesSpreadsheetPage() {
                                 y1={paddingY}
                                 x2={p.x}
                                 y2={chartH - paddingY}
-                                stroke="#f1f5f9"
-                                strokeDasharray="3"
+                                stroke="#f8fafc"
+                                strokeDasharray="3 3"
+                                strokeWidth="1"
                               />
                               <text
                                 x={p.x}
@@ -926,9 +943,10 @@ export default function UtilitiesSpreadsheetPage() {
                           <polyline
                             fill="none"
                             stroke="#f59e0b"
-                            strokeWidth="3.5"
+                            strokeWidth="4.5"
                             strokeLinecap="round"
                             strokeLinejoin="round"
+                            filter="url(#elecGlow)"
                             points={elecPathStr}
                           />
 
@@ -936,85 +954,103 @@ export default function UtilitiesSpreadsheetPage() {
                           <polyline
                             fill="none"
                             stroke="#0ea5e9"
-                            strokeWidth="3.5"
+                            strokeWidth="4.5"
                             strokeLinecap="round"
                             strokeLinejoin="round"
+                            filter="url(#waterGlow)"
                             points={waterPathStr}
                           />
 
                           {/* Interactive data dots */}
                           {elecPoints.map((p, i) => (
-                            <g key={`elec-dot-${i}`} className="group/dot">
-                              <circle
-                                cx={p.x}
-                                cy={p.y}
-                                r="5.5"
-                                fill="#ffffff"
-                                stroke="#f59e0b"
-                                strokeWidth="3"
-                                className="transition hover:r-7 cursor-pointer"
-                              />
-                              <rect
-                                x={p.x - 30}
-                                y={p.y - 28}
-                                width="60"
-                                height="18"
-                                rx="5"
-                                fill="#78350f"
-                                className="opacity-0 group-hover/dot:opacity-100 transition duration-150 pointer-events-none"
-                              />
-                              <text
-                                x={p.x}
-                                y={p.y - 16}
-                                textAnchor="middle"
-                                fontSize="8.5"
-                                fill="#ffffff"
-                                fontWeight="black"
-                                className="opacity-0 group-hover/dot:opacity-100 transition duration-150 pointer-events-none"
-                              >
-                                {p.val.toFixed(1)} u
-                              </text>
-                            </g>
+                            <circle
+                              key={`elec-dot-${i}`}
+                              cx={p.x}
+                              cy={p.y}
+                              r="6"
+                              fill="#ffffff"
+                              stroke="#f59e0b"
+                              strokeWidth="3.5"
+                              className="transition duration-150"
+                            />
                           ))}
 
                           {/* Water data dots */}
                           {waterPoints.map((p, i) => (
-                            <g key={`water-dot-${i}`} className="group/wdot">
-                              <circle
-                                cx={p.x}
-                                cy={p.y}
-                                r="5.5"
-                                fill="#ffffff"
-                                stroke="#0ea5e9"
-                                strokeWidth="3"
-                                className="transition hover:r-7 cursor-pointer"
-                              />
-                              <rect
-                                x={p.x - 30}
-                                y={p.y - 28}
-                                width="60"
-                                height="18"
-                                rx="5"
-                                fill="#0369a1"
-                                className="opacity-0 group-hover/wdot:opacity-100 transition duration-150 pointer-events-none"
-                              />
-                              <text
-                                x={p.x}
-                                y={p.y - 16}
-                                textAnchor="middle"
-                                fontSize="8.5"
-                                fill="#ffffff"
-                                fontWeight="black"
-                                className="opacity-0 group-hover/wdot:opacity-100 transition duration-150 pointer-events-none"
-                              >
-                                {p.val.toFixed(1)} u
-                              </text>
-                            </g>
+                            <circle
+                              key={`water-dot-${i}`}
+                              cx={p.x}
+                              cy={p.y}
+                              r="6"
+                              fill="#ffffff"
+                              stroke="#0ea5e9"
+                              strokeWidth="3.5"
+                              className="transition duration-150"
+                            />
                           ))}
+
+                          {/* Large Interactive Hover Capture Boxes */}
+                          {elecPoints.map((p, i) => {
+                            const capW = (i === 0 || i === pointsCount - 1) ? stepX / 2 : stepX;
+                            return (
+                              <rect
+                                key={`capture-${i}`}
+                                x={p.x - capW / 2}
+                                y={paddingY}
+                                width={capW}
+                                height={chartH - paddingY * 2}
+                                fill="transparent"
+                                className="cursor-pointer"
+                                onMouseEnter={(e) => {
+                                  const rect = e.currentTarget.getBoundingClientRect();
+                                  setTrendTooltip({
+                                    month: formatMonthThai(p.month),
+                                    electricity: p.val,
+                                    water: waterPoints[i].val,
+                                    x: rect.left + rect.width / 2,
+                                    y: rect.top - 8
+                                  });
+                                }}
+                                onMouseLeave={() => setTrendTooltip(null)}
+                              />
+                            );
+                          })}
                         </g>
                       );
                     })()}
                   </svg>
+
+                  {/* Floating Glassmorphic Tooltip Card */}
+                  {trendTooltip && (
+                    <div 
+                      className="fixed z-50 pointer-events-none transform -translate-x-1/2 -translate-y-full bg-white/95 backdrop-blur-md border border-slate-100 shadow-[0_12px_40px_rgba(0,0,0,0.12)] rounded-2xl p-4 min-w-[210px] transition-all duration-120 ease-out"
+                      style={{ left: trendTooltip.x, top: trendTooltip.y }}
+                    >
+                      <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                        <span>🗓️ รอบบิล:</span> {trendTooltip.month}
+                      </div>
+                      <div className="space-y-1.5 text-xs font-bold">
+                        <div className="flex justify-between items-center gap-4">
+                          <span className="text-slate-500 font-semibold flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded bg-amber-400 inline-block shadow-[0_1.5px_4px_rgba(245,158,11,0.35)]"></span>
+                            ไฟฟ้าที่ใช้:
+                          </span>
+                          <span className="text-amber-600 font-extrabold text-right">
+                            {trendTooltip.electricity.toLocaleString("th-TH", { maximumFractionDigits: 1 })} หน่วย
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center gap-4">
+                          <span className="text-slate-500 font-semibold flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded bg-sky-400 inline-block shadow-[0_1.5px_4px_rgba(14,165,233,0.35)]"></span>
+                            ประปาที่ใช้:
+                          </span>
+                          <span className="text-sky-600 font-extrabold text-right">
+                            {trendTooltip.water.toLocaleString("th-TH", { maximumFractionDigits: 1 })} หน่วย
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
 
                 <div className="flex justify-center gap-8 mt-2 text-xs font-black text-slate-500">

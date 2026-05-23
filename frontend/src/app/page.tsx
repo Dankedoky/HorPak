@@ -1,5 +1,4 @@
 "use client";
-
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useDormitoryData } from "@/lib/useDormitoryData";
@@ -8,23 +7,48 @@ import { useHouseData } from "@/lib/useHouseData";
 import { authFetch, fetchExpiringLeases } from "@/lib/api";
 
 // --- Donut Chart ---
-const DonutChart = ({ data, hole = 26 }: { data: { label: string; value: number; color: string }[]; hole?: number }) => {
+const DonutChart = ({ data }: { data: { label: string; value: number; color: string }[] }) => {
+  const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
   const total = data.reduce((acc, item) => acc + item.value, 0) || 1;
 
+  // Premium glow gradients
+  const gradients = [
+    { start: "#60A5FA", end: "#2563EB", glow: "rgba(37,99,235,0.2)" }, // Premium Royal Blue
+    { start: "#34D399", end: "#059669", glow: "rgba(5,150,105,0.2)" }, // Emerald Green
+    { start: "#FBBF24", end: "#D97706", glow: "rgba(217,119,6,0.2)" }, // Amber Gold
+  ];
+
   return (
-    <div className="relative w-36 h-36 mx-auto">
-      <svg viewBox="0 0 100 100" className="w-full h-full overflow-visible">
+    <div className="relative w-40 h-40 mx-auto flex items-center justify-center">
+      <svg viewBox="0 0 120 120" className="w-full h-full overflow-visible">
+        <defs>
+          {gradients.map((grad, idx) => (
+            <linearGradient id={`donutGrad-${idx}`} key={idx} x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0%" stopColor={grad.start} />
+              <stop offset="100%" stopColor={grad.end} />
+            </linearGradient>
+          ))}
+          <filter id="shadowFilter" x="-10%" y="-10%" width="120%" height="120%">
+            <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#000" floodOpacity="0.08" />
+          </filter>
+        </defs>
+        
         {data.map((item, idx) => {
           if (item.value === 0) return null;
           const percentage = item.value / total;
-
+          
           if (percentage >= 0.999) {
             return (
               <circle
                 key={idx}
-                cx="50" cy="50" r="40"
-                fill={item.color}
-                className="hover:opacity-80 transition-opacity stroke-white stroke-[2px]"
+                cx="60" cy="60" r="42"
+                fill="none"
+                stroke={`url(#donutGrad-${idx % gradients.length})`}
+                strokeWidth="14"
+                filter="url(#shadowFilter)"
+                className="transition-all duration-300 cursor-pointer"
+                onMouseEnter={() => setHoveredIndex(idx)}
+                onMouseLeave={() => setHoveredIndex(null)}
               />
             );
           }
@@ -35,23 +59,71 @@ const DonutChart = ({ data, hole = 26 }: { data: { label: string; value: number;
           const endAngle = startAngle + sliceAngle;
 
           const toRad = (deg: number) => (Math.PI * deg) / 180;
-          const sx = 50 + 40 * Math.cos(toRad(startAngle));
-          const sy = 50 + 40 * Math.sin(toRad(startAngle));
-          const ex = 50 + 40 * Math.cos(toRad(endAngle));
-          const ey = 50 + 40 * Math.sin(toRad(endAngle));
+          const rInner = 30;
+          const rOuter = 44;
+
+          const x1o = 60 + rOuter * Math.cos(toRad(startAngle));
+          const y1o = 60 + rOuter * Math.sin(toRad(startAngle));
+          const x2o = 60 + rOuter * Math.cos(toRad(endAngle));
+          const y2o = 60 + rOuter * Math.sin(toRad(endAngle));
+
+          const x1i = 60 + rInner * Math.cos(toRad(endAngle));
+          const y1i = 60 + rInner * Math.sin(toRad(endAngle));
+          const x2i = 60 + rInner * Math.cos(toRad(startAngle));
+          const y2i = 60 + rInner * Math.sin(toRad(startAngle));
+
           const largeArc = percentage > 0.5 ? 1 : 0;
+          
+          const isHovered = hoveredIndex === idx;
+          const angleOffset = isHovered ? 3.5 : 0;
+          const midAngle = startAngle + sliceAngle / 2;
+          const tx = angleOffset * Math.cos(toRad(midAngle));
+          const ty = angleOffset * Math.sin(toRad(midAngle));
 
           return (
             <path
               key={idx}
-              d={`M 50 50 L ${sx} ${sy} A 40 40 0 ${largeArc} 1 ${ex} ${ey} Z`}
-              fill={item.color}
-              className="hover:opacity-80 transition-opacity stroke-white stroke-[2px]"
+              d={`M ${x1o} ${y1o} A ${rOuter} ${rOuter} 0 ${largeArc} 1 ${x2o} ${y2o} L ${x1i} ${y1i} A ${rInner} ${rInner} 0 ${largeArc} 0 ${x2i} ${y2i} Z`}
+              fill={`url(#donutGrad-${idx % gradients.length})`}
+              className="transition-all duration-300 cursor-pointer stroke-white stroke-[2px]"
+              style={{
+                transform: `translate(${tx}px, ${ty}px)`,
+                filter: isHovered 
+                  ? `drop-shadow(0 4px 10px ${gradients[idx % gradients.length].glow})` 
+                  : 'none',
+                transformOrigin: '60px 60px'
+              }}
+              onMouseEnter={() => setHoveredIndex(idx)}
+              onMouseLeave={() => setHoveredIndex(null)}
             />
           );
         })}
-        <circle cx="50" cy="50" r={hole} fill="white" />
       </svg>
+      
+      {/* Center Details Display */}
+      <div className="absolute w-[56%] h-[56%] bg-white rounded-full shadow-[inset_0_2px_6px_rgba(0,0,0,0.05),0_8px_16px_rgba(0,0,0,0.02)] backdrop-blur-md flex flex-col items-center justify-center p-2 text-center border border-slate-50/50">
+        {hoveredIndex !== null ? (
+          <div className="animate-[fadeIn_0.2s_ease-out]">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block truncate max-w-[70px]">{data[hoveredIndex].label}</span>
+            <span className="text-sm font-black text-slate-800 block mt-0.5 leading-none">
+              {Math.round((data[hoveredIndex].value / total) * 100)}%
+            </span>
+            <span className="text-[9px] font-extrabold text-slate-500 mt-1 block">
+              {data[hoveredIndex].value.toLocaleString()} ฿
+            </span>
+          </div>
+        ) : (
+          <div className="animate-[fadeIn_0.2s_ease-out]">
+            <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest block">รายรับรวม</span>
+            <span className="text-xs font-black text-blue-600 block mt-0.5 leading-none">
+              {total.toLocaleString()} ฿
+            </span>
+            <span className="text-[7px] font-black text-emerald-500 block mt-1 bg-emerald-50 px-1 py-0.5 rounded-full border border-emerald-100/30">
+              REAL-TIME
+            </span>
+          </div>
+        )}
+      </div>
     </div>
   );
 };
@@ -62,23 +134,42 @@ const OccupancyRing = ({ rate }: { rate: number }) => {
   const circ = 2 * Math.PI * r;
   const offset = circ - (rate / 100) * circ;
   return (
-    <div className="relative w-28 h-28 mx-auto flex items-center justify-center">
-      <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90">
-        <circle cx="50" cy="50" r={r} fill="none" stroke="#f1f5f9" strokeWidth="10" />
+    <div className="relative w-30 h-30 mx-auto flex items-center justify-center">
+      <svg viewBox="0 0 100 100" className="w-full h-full -rotate-90 overflow-visible">
+        <defs>
+          <linearGradient id="ringGrad" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#34D399" />
+            <stop offset="100%" stopColor="#059669" />
+          </linearGradient>
+          <linearGradient id="ringGradWarning" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#FBBF24" />
+            <stop offset="100%" stopColor="#D97706" />
+          </linearGradient>
+          <linearGradient id="ringGradDanger" x1="0" y1="0" x2="1" y2="1">
+            <stop offset="0%" stopColor="#F87171" />
+            <stop offset="100%" stopColor="#EF4444" />
+          </linearGradient>
+        </defs>
+        <circle cx="50" cy="50" r={r} fill="none" stroke="#F1F5F9" strokeWidth="8" />
         <circle
           cx="50" cy="50" r={r}
           fill="none"
-          stroke={rate >= 80 ? "#10b981" : rate >= 50 ? "#f59e0b" : "#ef4444"}
-          strokeWidth="10"
+          stroke={`url(${rate >= 80 ? "#ringGrad" : rate >= 50 ? "#ringGradWarning" : "#ringGradDanger"})`}
+          strokeWidth="8.5"
           strokeDasharray={circ}
           strokeDashoffset={offset}
           strokeLinecap="round"
-          className="transition-all duration-700"
+          className="transition-all duration-1000 ease-out"
+          style={{
+            filter: rate >= 80 ? "drop-shadow(0 2px 4px rgba(16,185,129,0.3))" : 
+                    rate >= 50 ? "drop-shadow(0 2px 4px rgba(217,119,6,0.3))" : 
+                                 "drop-shadow(0 2px 4px rgba(239,68,68,0.3))"
+          }}
         />
       </svg>
-      <div className="absolute flex flex-col items-center">
-        <span className="text-xl font-black text-slate-800">{rate}%</span>
-        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wide">เช่า</span>
+      <div className="absolute flex flex-col items-center justify-center w-[72%] h-[72%] bg-white rounded-full shadow-[0_3px_8px_rgba(0,0,0,0.03)] border border-slate-50">
+        <span className="text-xl font-black bg-gradient-to-br from-slate-800 to-slate-900 bg-clip-text text-transparent">{rate}%</span>
+        <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest mt-0.5">อัตราเช่า</span>
       </div>
     </div>
   );
@@ -132,7 +223,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6 animate-[fadeIn_0.5s_ease-out]">
-
+      
       {/* --- Header --- */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
         <div>
@@ -560,7 +651,7 @@ export default function Dashboard() {
           {/* Status Donut */}
           <div className="bg-white rounded-2xl p-6 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
             <h3 className="text-sm font-bold text-slate-700 mb-4 text-center">สถานะงานซ่อม</h3>
-            <DonutChart data={garage.statusDistribution} hole={30} />
+            <DonutChart data={garage.statusDistribution} />
             <div className="space-y-2 mt-5">
               {garage.statusDistribution.map((d, i) => {
                 const pct = garage.totalJobs > 0 ? Math.round((d.value / garage.totalJobs) * 100) : 0;
@@ -719,6 +810,7 @@ export default function Dashboard() {
           </div>
         </div>
       )}
+      
       {/* ========== Monthly Trend Chart ========== */}
       <MonthlyChart />
 
@@ -736,6 +828,13 @@ function MonthlyChart() {
   const [billingResult, setBillingResult] = useState<Record<string, any> | null>(null);
   const [showBilling, setShowBilling] = useState(false);
   const [sendingLine, setSendingLine] = useState(false);
+  const [activeTooltip, setActiveTooltip] = useState<{
+    month: string;
+    income: number;
+    expense: number;
+    x: number;
+    y: number;
+  } | null>(null);
   const API_BASE = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
   useEffect(() => {
@@ -782,81 +881,135 @@ function MonthlyChart() {
   };
 
   return (
-    <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)]">
+    <div className="bg-white rounded-3xl p-6 border border-slate-100 shadow-[0_2px_10px_rgba(0,0,0,0.02)] relative">
       <div className="flex justify-between items-center mb-6">
         <div>
           <h3 className="text-base font-black text-slate-800">📊 แนวโน้มรายรับ-รายจ่าย</h3>
           <p className="text-xs text-slate-400 mt-0.5">6 เดือนล่าสุด</p>
         </div>
         <button onClick={checkBilling}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors"
+          className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100 transition-colors cursor-pointer"
         >🔔 เช็คบิลค้างชำระ</button>
       </div>
 
       {data.length === 0 ? (
         <div className="text-center py-12 text-slate-400 text-sm">ยังไม่มีข้อมูลรายเดือน</div>
       ) : (
-        <div className="overflow-x-auto">
-          <svg viewBox={`0 0 ${Math.max(data.length * 120, 400)} 260`} className="w-full" style={{ minWidth: 350 }}>
+        <div className="overflow-x-auto relative">
+          <svg viewBox={`0 0 ${Math.max(data.length * 120, 400)} 260`} className="w-full overflow-visible" style={{ minWidth: 350 }}>
+            <defs>
+              <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#34D399" />
+                <stop offset="100%" stopColor="#059669" />
+              </linearGradient>
+              <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor="#F87171" />
+                <stop offset="100%" stopColor="#EF4444" />
+              </linearGradient>
+              <filter id="incomeGlow" x="-10%" y="-10%" width="120%" height="120%">
+                <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#10B981" floodOpacity="0.12" />
+              </filter>
+              <filter id="expenseGlow" x="-10%" y="-10%" width="120%" height="120%">
+                <feDropShadow dx="0" dy="4" stdDeviation="4" floodColor="#EF4444" floodOpacity="0.12" />
+              </filter>
+            </defs>
+
             {/* Grid Lines */}
             {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
               <g key={i}>
                 <line x1="60" y1={220 - pct * 200} x2={data.length * 120 + 20} y2={220 - pct * 200}
-                  stroke="#f1f5f9" strokeWidth="1" />
-                <text x="55" y={225 - pct * 200} textAnchor="end" fontSize="9" fill="#94a3b8">
+                  stroke="#F1F5F9" strokeWidth="1" strokeDasharray={i > 0 && i < 4 ? "4 4" : "0"} />
+                <text x="50" y={224 - pct * 200} textAnchor="end" fontSize="9" fill="#94A3B8" fontWeight="black">
                   {(maxVal * pct / 1000).toFixed(0)}K
                 </text>
               </g>
             ))}
+            
             {/* Bars */}
             {data.map((d, i) => {
               const x = 70 + i * 110;
               const incomeH = (d.income / maxVal) * 200;
               const expenseH = (d.expense / maxVal) * 200;
               return (
-                <g key={d.month}>
+                <g key={d.month} className="group">
                   {/* Income Bar */}
-                  <rect x={x} y={220 - incomeH} width="36" height={incomeH} rx="4"
-                    fill="url(#incomeGrad)" opacity="0.9">
-                    <title>รายรับ: {d.income.toLocaleString()} ฿</title>
-                  </rect>
-                  <text x={x + 18} y={215 - incomeH} textAnchor="middle" fontSize="8" fill="#059669" fontWeight="bold">
-                    {d.income > 0 ? `${(d.income/1000).toFixed(0)}K` : ''}
-                  </text>
+                  <rect x={x} y={220 - incomeH} width="36" height={incomeH} rx="6"
+                    fill="url(#incomeGrad)" filter="url(#incomeGlow)" className="transition-all duration-300 transform origin-bottom hover:scale-y-[1.03] cursor-pointer" />
+                  
                   {/* Expense Bar */}
-                  <rect x={x + 42} y={220 - expenseH} width="36" height={expenseH} rx="4"
-                    fill="url(#expenseGrad)" opacity="0.9">
-                    <title>รายจ่าย: {d.expense.toLocaleString()} ฿</title>
-                  </rect>
-                  <text x={x + 60} y={215 - expenseH} textAnchor="middle" fontSize="8" fill="#e11d48" fontWeight="bold">
-                    {d.expense > 0 ? `${(d.expense/1000).toFixed(0)}K` : ''}
-                  </text>
+                  <rect x={x + 42} y={220 - expenseH} width="36" height={expenseH} rx="6"
+                    fill="url(#expenseGrad)" filter="url(#expenseGlow)" className="transition-all duration-300 transform origin-bottom hover:scale-y-[1.03] cursor-pointer" />
+                  
                   {/* Month Label */}
-                  <text x={x + 39} y={240} textAnchor="middle" fontSize="10" fill="#64748b" fontWeight="600">
+                  <text x={x + 39} y={245} textAnchor="middle" fontSize="10" fill="#64748B" fontWeight="bold">
                     {formatMonth(d.month)}
                   </text>
+
+                  {/* Interactive Big Hover Capture Box */}
+                  <rect 
+                    x={x - 8} 
+                    y={10} 
+                    width="96" 
+                    height="215" 
+                    fill="transparent" 
+                    className="cursor-pointer"
+                    onMouseEnter={(e) => {
+                      const rect = e.currentTarget.getBoundingClientRect();
+                      setActiveTooltip({
+                        month: formatMonth(d.month),
+                        income: d.income,
+                        expense: d.expense,
+                        x: rect.left + rect.width / 2,
+                        y: rect.top - 8
+                      });
+                    }}
+                    onMouseLeave={() => setActiveTooltip(null)}
+                  />
                 </g>
               );
             })}
-            {/* Gradients */}
-            <defs>
-              <linearGradient id="incomeGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#34d399" />
-                <stop offset="100%" stopColor="#059669" />
-              </linearGradient>
-              <linearGradient id="expenseGrad" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="0%" stopColor="#fb7185" />
-                <stop offset="100%" stopColor="#e11d48" />
-              </linearGradient>
-            </defs>
           </svg>
+
           {/* Legend */}
-          <div className="flex justify-center gap-6 mt-3">
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-              <div className="w-3 h-3 rounded-sm bg-emerald-500" /> รายรับ
+          <div className="flex justify-center gap-6 mt-5">
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+              <div className="w-3.5 h-3.5 rounded-md bg-gradient-to-br from-[#34D399] to-[#059669] shadow-[0_2px_6px_rgba(16,185,129,0.25)]" /> รายรับ
             </div>
-            <div className="flex items-center gap-1.5 text-xs font-semibold text-slate-500">
-              <div className="w-3 h-3 rounded-sm bg-rose-500" /> รายจ่าย
+            <div className="flex items-center gap-2 text-xs font-bold text-slate-500">
+              <div className="w-3.5 h-3.5 rounded-md bg-gradient-to-br from-[#F87171] to-[#EF4444] shadow-[0_2px_6px_rgba(239,68,68,0.25)]" /> รายจ่าย
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Floating Glassmorphic Tooltip Card */}
+      {activeTooltip && (
+        <div 
+          className="fixed z-50 pointer-events-none transform -translate-x-1/2 -translate-y-full bg-white/95 backdrop-blur-md border border-slate-100 shadow-[0_8px_30px_rgba(0,0,0,0.12)] rounded-2xl p-4 min-w-[190px] transition-all duration-120 ease-out"
+          style={{ left: activeTooltip.x, top: activeTooltip.y }}
+        >
+          <div className="text-[11px] font-black text-slate-700 border-b border-slate-100 pb-2 mb-2 flex justify-between items-center">
+            <span>🗓️ {activeTooltip.month}</span>
+            <span className="text-[9px] font-black bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded border border-blue-100/50">SUMMARY</span>
+          </div>
+          <div className="space-y-1.5 text-xs font-semibold text-slate-600">
+            <div className="flex justify-between items-center gap-4">
+              <span className="flex items-center gap-1.5 text-slate-400">
+                <span className="w-2.5 h-2.5 rounded-sm bg-gradient-to-br from-[#34D399] to-[#059669] inline-block" /> รายรับ:
+              </span>
+              <span className="text-emerald-600 font-extrabold text-right">{activeTooltip.income.toLocaleString()} ฿</span>
+            </div>
+            <div className="flex justify-between items-center gap-4">
+              <span className="flex items-center gap-1.5 text-slate-400">
+                <span className="w-2.5 h-2.5 rounded-sm bg-gradient-to-br from-[#F87171] to-[#EF4444] inline-block" /> รายจ่าย:
+              </span>
+              <span className="text-rose-600 font-extrabold text-right">{activeTooltip.expense.toLocaleString()} ฿</span>
+            </div>
+            <div className="flex justify-between items-center gap-4 pt-2 border-t border-slate-50 mt-1">
+              <span className="text-slate-500 font-bold">กำไรสุทธิ:</span>
+              <span className={`font-black ${activeTooltip.income - activeTooltip.expense >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                {(activeTooltip.income - activeTooltip.expense).toLocaleString()} ฿
+              </span>
             </div>
           </div>
         </div>
@@ -865,12 +1018,12 @@ function MonthlyChart() {
       {/* Billing Reminder Modal */}
       {showBilling && billingResult && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm animate-[fadeIn_0.2s_ease-out]" onClick={() => setShowBilling(false)}>
-          <div className="bg-white rounded-3xl p-6 max-w-md w-full mx-4 shadow-2xl overflow-hidden animate-[scaleUp_0.3s_ease-out]" onClick={e => e.stopPropagation()}>
+          <div className="bg-white rounded-3xl p-6 max-w-md w-full mx-4 shadow-2xl overflow-hidden" onClick={e => e.stopPropagation()}>
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-lg font-black text-slate-800 flex items-center gap-2">
                 <span>🔔</span> สรุปบิลค้างชำระ (Unpaid Bills)
               </h3>
-              <button onClick={() => setShowBilling(false)} className="text-slate-400 hover:text-slate-600 transition">
+              <button onClick={() => setShowBilling(false)} className="text-slate-400 hover:text-slate-600 transition cursor-pointer">
                 ✕
               </button>
             </div>
@@ -896,7 +1049,7 @@ function MonthlyChart() {
 
             {/* LINE OA Dispatch Status / Trigger */}
             {billingResult.send_line_executed ? (
-              <div className="mb-6 bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5 animate-[fadeIn_0.3s_ease-out]">
+              <div className="mb-6 bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2.5">
                 <h4 className="text-xs font-black text-slate-700 uppercase tracking-wider">📊 สรุปผลการส่งผ่าน LINE OA</h4>
                 <div className="grid grid-cols-2 gap-2">
                   <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-2.5 text-center">

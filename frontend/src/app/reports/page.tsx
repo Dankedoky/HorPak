@@ -95,6 +95,34 @@ export default function ReportsPage() {
     month: new Date().getMonth() + 1
   });
 
+  // Interactive SVG Tooltips states
+  const [cashFlowTooltip, setCashFlowTooltip] = useState<{
+    month: string;
+    income: number;
+    expense: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const [waterTooltip, setWaterTooltip] = useState<{
+    month: string;
+    collected: number;
+    gov_paid: number;
+    margin: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+  const [elecTooltip, setElecTooltip] = useState<{
+    month: string;
+    collected: number;
+    gov_paid: number;
+    margin: number;
+    x: number;
+    y: number;
+  } | null>(null);
+
+
 
   // Dynamic Date Range States (Default to last 6 months)
   const defaultDates = useMemo(() => {
@@ -739,12 +767,30 @@ export default function ReportsPage() {
             {/* Dynamic Monthly Cashflow SVG Chart */}
             <div className="lg:col-span-3">
               <Panel title={`📈 แผนภูมิกระแสเงินสดบัญชี รายรับ ปะทะ รายจ่าย (${formatMonthThai(startMonth)} - ${formatMonthThai(endMonth)})`} subtitle="เปรียบเทียบความสัมพันธ์ของรายรับจริง (เขียว) ปะทะรายจ่าย (แดง) สะสมตาม Ledger บัญชี">
-                <div className="overflow-x-auto">
-                  <svg viewBox={`0 0 ${overviewChartWidth} 240`} className="h-[240px]" style={{ minWidth: overviewChartWidth }}>
+                <div className="overflow-x-auto relative">
+                  <svg viewBox={`0 0 ${overviewChartWidth} 240`} className="h-[240px] overflow-visible" style={{ minWidth: overviewChartWidth }}>
+                    {/* Definitions */}
+                    <defs>
+                      <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#34d399" />
+                        <stop offset="100%" stopColor="#059669" />
+                      </linearGradient>
+                      <linearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#f87171" />
+                        <stop offset="100%" stopColor="#ef4444" />
+                      </linearGradient>
+                      <filter id="incGlow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="4" stdDeviation="4.5" floodColor="#10b981" floodOpacity="0.22" />
+                      </filter>
+                      <filter id="expGlow" x="-20%" y="-20%" width="140%" height="140%">
+                        <feDropShadow dx="0" dy="4" stdDeviation="4.5" floodColor="#ef4444" floodOpacity="0.22" />
+                      </filter>
+                    </defs>
+
                     {/* Grid Lines */}
                     {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
                       <g key={i}>
-                        <line x1="60" y1={190 - pct * 150} x2={overviewChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" />
+                        <line x1="60" y1={190 - pct * 150} x2={overviewChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" strokeDasharray={i > 0 && i < 4 ? "4 4" : "0"} />
                         <text x="50" y={194 - pct * 150} textAnchor="end" fontSize="9" fill="#94a3b8" fontWeight="bold">
                           {(maxMonthlyVal * pct).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                         </text>
@@ -761,19 +807,15 @@ export default function ReportsPage() {
                       return (
                         <g key={d.month} className="group">
                           {/* Income Bar */}
-                          <rect x={x} y={190 - incH} width="22" height={incH} rx="3" fill="url(#incGrad)" opacity="0.9" className="transition-all duration-300 hover:opacity-100">
-                            <title>รายรับสะสม: {d.income.toLocaleString()} ฿</title>
-                          </rect>
-                          <text x={x + 11} y={183 - incH} textAnchor="middle" fontSize="8" fill="#065f46" fontWeight="bold" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            {d.income > 0 ? `${(d.income/1000).toFixed(1)}K` : ''}
+                          <rect x={x} y={190 - incH} width="22" height={incH} rx="5.5" fill="url(#incGrad)" filter="url(#incGlow)" className="transition-all duration-300 transform origin-bottom hover:scale-y-[1.04] cursor-pointer" />
+                          <text x={x + 11} y={183 - incH} textAnchor="middle" fontSize="8" fill="#065f46" fontWeight="black" className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            {d.income > 0 ? `${(d.income/1000).toFixed(0)}K` : ''}
                           </text>
 
                           {/* Expense Bar */}
-                          <rect x={x + 26} y={190 - expH} width="22" height={expH} rx="3" fill="url(#expGrad)" opacity="0.9" className="transition-all duration-300 hover:opacity-100">
-                            <title>รายจ่ายสะสม: {d.expense.toLocaleString()} ฿</title>
-                          </rect>
-                          <text x={x + 37} y={183 - expH} textAnchor="middle" fontSize="8" fill="#991b1b" fontWeight="bold" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                            {d.expense > 0 ? `${(d.expense/1000).toFixed(1)}K` : ''}
+                          <rect x={x + 26} y={190 - expH} width="22" height={expH} rx="5.5" fill="url(#expGrad)" filter="url(#expGlow)" className="transition-all duration-300 transform origin-bottom hover:scale-y-[1.04] cursor-pointer" />
+                          <text x={x + 37} y={183 - expH} textAnchor="middle" fontSize="8" fill="#991b1b" fontWeight="black" className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                            {d.expense > 0 ? `${(d.expense/1000).toFixed(0)}K` : ''}
                           </text>
 
                           {/* X-Axis Month Tag */}
@@ -782,25 +824,75 @@ export default function ReportsPage() {
                           </text>
                           
                           {/* Net Margin badge at bar bottom */}
-                          <text x={x + 24} y={224} textAnchor="middle" fontSize="8" fill={net >= 0 ? "#059669" : "#e11d48"} fontWeight="black">
+                          <text x={x + 24} y={224} textAnchor="middle" fontSize="8.5" fill={net >= 0 ? "#059669" : "#e11d48"} fontWeight="black">
                             {net >= 0 ? `+${Math.round(net).toLocaleString()}` : Math.round(net).toLocaleString()}
                           </text>
+
+                          {/* Large Interactive Hover Capture Box */}
+                          <rect 
+                            x={x - 4} 
+                            y={10} 
+                            width="56" 
+                            height="185" 
+                            fill="transparent" 
+                            className="cursor-pointer"
+                            onMouseEnter={(e) => {
+                              const rect = e.currentTarget.getBoundingClientRect();
+                              setCashFlowTooltip({
+                                month: formatMonthThai(d.month),
+                                income: d.income,
+                                expense: d.expense,
+                                x: rect.left + rect.width / 2,
+                                y: rect.top - 8
+                              });
+                            }}
+                            onMouseLeave={() => setCashFlowTooltip(null)}
+                          />
                         </g>
                       );
                     })}
-
-                    {/* Definitions */}
-                    <defs>
-                      <linearGradient id="incGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#10b981" />
-                        <stop offset="100%" stopColor="#047857" />
-                      </linearGradient>
-                      <linearGradient id="expGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor="#f43f5e" />
-                        <stop offset="100%" stopColor="#be123c" />
-                      </linearGradient>
-                    </defs>
                   </svg>
+
+                  {/* Floating Glassmorphic Tooltip Card */}
+                  {cashFlowTooltip && (
+                    <div 
+                      className="fixed z-50 pointer-events-none transform -translate-x-1/2 -translate-y-full bg-white/95 backdrop-blur-md border border-slate-100 shadow-[0_12px_40px_rgba(0,0,0,0.12)] rounded-2xl p-4 min-w-[210px] transition-all duration-120 ease-out"
+                      style={{ left: cashFlowTooltip.x, top: cashFlowTooltip.y }}
+                    >
+                      <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                        <span>🗓️ รอบบิล:</span> {cashFlowTooltip.month}
+                      </div>
+                      <div className="space-y-1.5 text-xs font-bold">
+                        <div className="flex justify-between items-center gap-4">
+                          <span className="text-slate-500 font-semibold flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded bg-emerald-400 inline-block shadow-[0_1.5px_4px_rgba(16,185,129,0.35)]"></span>
+                            รายรับจริง:
+                          </span>
+                          <span className="text-emerald-600 font-extrabold text-right">
+                            {cashFlowTooltip.income.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                          </span>
+                        </div>
+                        <div className="flex justify-between items-center gap-4">
+                          <span className="text-slate-500 font-semibold flex items-center gap-1">
+                            <span className="w-2.5 h-2.5 rounded bg-rose-400 inline-block shadow-[0_1.5px_4px_rgba(239,68,68,0.35)]"></span>
+                            รายจ่ายจริง:
+                          </span>
+                          <span className="text-rose-600 font-extrabold text-right">
+                            {cashFlowTooltip.expense.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                          </span>
+                        </div>
+                        <div className="border-t border-dashed border-slate-100 pt-2 mt-2 flex justify-between items-center gap-4">
+                          <span className="text-slate-700 font-black flex items-center gap-1">
+                            <span>💼</span> สุทธิ (Net):
+                          </span>
+                          <span className={`font-black ${cashFlowTooltip.income - cashFlowTooltip.expense >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                            {cashFlowTooltip.income - cashFlowTooltip.expense >= 0 ? "+" : ""}
+                            {(cashFlowTooltip.income - cashFlowTooltip.expense).toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex justify-center gap-6 mt-2 text-xs font-bold text-slate-500">
                   <span className="flex items-center gap-2">
@@ -960,12 +1052,30 @@ export default function ReportsPage() {
               <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
                 {/* Water Chart */}
                 <Panel title={`💧 แผนภาพค่าน้ำประปา (${formatMonthThai(startMonth)} - ${formatMonthThai(endMonth)})`} subtitle="เปรียบเทียบรายรับค่าน้ำ (น้ำเงิน) ปะทะ ยอดจ่ายหลวงจริง (เทา)">
-                  <div className="overflow-x-auto">
-                    <svg viewBox={`0 0 ${waterChartWidth} 240`} className="h-[240px]" style={{ minWidth: waterChartWidth }}>
+                  <div className="overflow-x-auto relative">
+                    <svg viewBox={`0 0 ${waterChartWidth} 240`} className="h-[240px] overflow-visible" style={{ minWidth: waterChartWidth }}>
+                      {/* Definitions */}
+                      <defs>
+                        <linearGradient id="waterColGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#60a5fa" />
+                          <stop offset="100%" stopColor="#2563eb" />
+                        </linearGradient>
+                        <linearGradient id="waterGovGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#cbd5e1" />
+                          <stop offset="100%" stopColor="#475569" />
+                        </linearGradient>
+                        <filter id="waterColGlow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feDropShadow dx="0" dy="4" stdDeviation="4.5" floodColor="#2563eb" floodOpacity="0.2" />
+                        </filter>
+                        <filter id="waterGovGlow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feDropShadow dx="0" dy="4" stdDeviation="4.5" floodColor="#475569" floodOpacity="0.15" />
+                        </filter>
+                      </defs>
+
                       {/* Grid Lines */}
                       {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
                         <g key={i}>
-                          <line x1="60" y1={190 - pct * 150} x2={waterChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" />
+                          <line x1="60" y1={190 - pct * 150} x2={waterChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" strokeDasharray={i > 0 && i < 4 ? "4 4" : "0"} />
                           <text x="50" y={194 - pct * 150} textAnchor="end" fontSize="9" fill="#94a3b8" fontWeight="bold">
                             {(maxWaterVal * pct).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </text>
@@ -981,19 +1091,15 @@ export default function ReportsPage() {
                         return (
                           <g key={d.month} className="group">
                             {/* Collected Bar */}
-                            <rect x={x} y={190 - colH} width="22" height={colH} rx="3" fill="url(#waterColGrad)" opacity="0.9" className="transition-all duration-300 hover:opacity-100">
-                              <title>เก็บจากลูกบ้าน: {d.collected.toLocaleString()} ฿</title>
-                            </rect>
-                            <text x={x + 11} y={183 - colH} textAnchor="middle" fontSize="8" fill="#1e3a8a" fontWeight="bold" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              {d.collected > 0 ? `${(d.collected/1000).toFixed(1)}K` : ''}
+                            <rect x={x} y={190 - colH} width="22" height={colH} rx="5.5" fill="url(#waterColGrad)" filter="url(#waterColGlow)" className="transition-all duration-300 transform origin-bottom hover:scale-y-[1.04] cursor-pointer" />
+                            <text x={x + 11} y={183 - colH} textAnchor="middle" fontSize="8" fill="#1e3a8a" fontWeight="black" className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              {d.collected > 0 ? `${(d.collected/1000).toFixed(0)}K` : ''}
                             </text>
 
                             {/* Paid Gov Bar */}
-                            <rect x={x + 26} y={190 - govH} width="22" height={govH} rx="3" fill="url(#waterGovGrad)" opacity="0.9" className="transition-all duration-300 hover:opacity-100">
-                              <title>จ่ายบิลประปาหลวง: {d.gov_paid.toLocaleString()} ฿</title>
-                            </rect>
-                            <text x={x + 37} y={183 - govH} textAnchor="middle" fontSize="8" fill="#475569" fontWeight="bold" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              {d.gov_paid > 0 ? `${(d.gov_paid/1000).toFixed(1)}K` : ''}
+                            <rect x={x + 26} y={190 - govH} width="22" height={govH} rx="5.5" fill="url(#waterGovGrad)" filter="url(#waterGovGlow)" className="transition-all duration-300 transform origin-bottom hover:scale-y-[1.04] cursor-pointer" />
+                            <text x={x + 37} y={183 - govH} textAnchor="middle" fontSize="8" fill="#475569" fontWeight="black" className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              {d.gov_paid > 0 ? `${(d.gov_paid/1000).toFixed(0)}K` : ''}
                             </text>
 
                             {/* X-Axis Month Tag */}
@@ -1002,44 +1108,113 @@ export default function ReportsPage() {
                             </text>
                             
                             {/* Margin badge at bar bottom */}
-                            <text x={x + 24} y={224} textAnchor="middle" fontSize="8" fill={d.margin >= 0 ? "#059669" : "#e11d48"} fontWeight="black">
+                            <text x={x + 24} y={224} textAnchor="middle" fontSize="8.5" fill={d.margin >= 0 ? "#059669" : "#e11d48"} fontWeight="black">
                               {d.margin >= 0 ? `+${Math.round(d.margin)}` : Math.round(d.margin)}
                             </text>
+
+                            {/* Large Interactive Hover Capture Box */}
+                            <rect 
+                              x={x - 4} 
+                              y={10} 
+                              width="56" 
+                              height="185" 
+                              fill="transparent" 
+                              className="cursor-pointer"
+                              onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setWaterTooltip({
+                                  month: formatMonthThai(d.month),
+                                  collected: d.collected,
+                                  gov_paid: d.gov_paid,
+                                  margin: d.margin,
+                                  x: rect.left + rect.width / 2,
+                                  y: rect.top - 8
+                                });
+                              }}
+                              onMouseLeave={() => setWaterTooltip(null)}
+                            />
                           </g>
                         );
                       })}
-
-                      {/* Definitions */}
-                      <defs>
-                        <linearGradient id="waterColGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#3b82f6" />
-                          <stop offset="100%" stopColor="#1d4ed8" />
-                        </linearGradient>
-                        <linearGradient id="waterGovGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#94a3b8" />
-                          <stop offset="100%" stopColor="#475569" />
-                        </linearGradient>
-                      </defs>
                     </svg>
+
+                    {/* Floating Glassmorphic Tooltip Card */}
+                    {waterTooltip && (
+                      <div 
+                        className="fixed z-50 pointer-events-none transform -translate-x-1/2 -translate-y-full bg-white/95 backdrop-blur-md border border-slate-100 shadow-[0_12px_40px_rgba(0,0,0,0.12)] rounded-2xl p-4 min-w-[210px] transition-all duration-120 ease-out"
+                        style={{ left: waterTooltip.x, top: waterTooltip.y }}
+                      >
+                        <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                          <span>🗓️ รอบบิล:</span> {waterTooltip.month}
+                        </div>
+                        <div className="space-y-1.5 text-xs font-bold">
+                          <div className="flex justify-between items-center gap-4">
+                            <span className="text-slate-500 font-semibold flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 rounded bg-blue-400 inline-block shadow-[0_1.5px_4px_rgba(59,130,246,0.35)]"></span>
+                              ลูกบ้านจ่าย:
+                            </span>
+                            <span className="text-blue-600 font-extrabold text-right">
+                              {waterTooltip.collected.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center gap-4">
+                            <span className="text-slate-500 font-semibold flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 rounded bg-slate-400 inline-block shadow-[0_1.5px_4px_rgba(71,85,105,0.35)]"></span>
+                              ค่าน้ำหลวง:
+                            </span>
+                            <span className="text-slate-600 font-extrabold text-right">
+                              {waterTooltip.gov_paid.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                            </span>
+                          </div>
+                          <div className="border-t border-dashed border-slate-100 pt-2 mt-2 flex justify-between items-center gap-4">
+                            <span className="text-slate-700 font-black flex items-center gap-1">
+                              <span>💧</span> ส่วนต่างสุทธิ:
+                            </span>
+                            <span className={`font-black ${waterTooltip.margin >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                              {waterTooltip.margin >= 0 ? "+" : ""}
+                              {waterTooltip.margin.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="flex justify-center gap-6 mt-2 text-xs font-bold text-slate-500">
                     <span className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded bg-blue-600 inline-block"></span> เรียกเก็บได้จากลูกบ้าน
+                      <span className="w-3.5 h-3.5 rounded-md bg-gradient-to-br from-[#60a5fa] to-[#2563eb] inline-block shadow-[0_2px_6px_rgba(37,99,235,0.25)]"></span> เรียกเก็บได้จากลูกบ้าน
                     </span>
                     <span className="flex items-center gap-2">
-                      <span className="w-3 h-3 rounded bg-slate-500 inline-block"></span> ค่าใช้จ่ายบิลหลวงประปา
+                      <span className="w-3.5 h-3.5 rounded-md bg-gradient-to-br from-[#cbd5e1] to-[#475569] inline-block shadow-[0_2px_6px_rgba(71,85,105,0.25)]"></span> ค่าใช้จ่ายบิลหลวงประปา
                     </span>
                   </div>
                 </Panel>
 
                 {/* Electricity Chart */}
                 <Panel title={`⚡ แผนภาพค่าไฟฟ้าหลวง (${formatMonthThai(startMonth)} - ${formatMonthThai(endMonth)})`} subtitle="เปรียบเทียบรายรับค่าไฟ (ส้ม) ปะทะ ยอดจ่ายหลวงจริง (แดง)">
-                  <div className="overflow-x-auto">
-                    <svg viewBox={`0 0 ${elecChartWidth} 240`} className="h-[240px]" style={{ minWidth: elecChartWidth }}>
+                  <div className="overflow-x-auto relative">
+                    <svg viewBox={`0 0 ${elecChartWidth} 240`} className="h-[240px] overflow-visible" style={{ minWidth: elecChartWidth }}>
+                      {/* Definitions */}
+                      <defs>
+                        <linearGradient id="elecColGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#fbbf24" />
+                          <stop offset="100%" stopColor="#d97706" />
+                        </linearGradient>
+                        <linearGradient id="elecGovGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#f87171" />
+                          <stop offset="100%" stopColor="#dc2626" />
+                        </linearGradient>
+                        <filter id="elecColGlow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feDropShadow dx="0" dy="4" stdDeviation="4.5" floodColor="#d97706" floodOpacity="0.22" />
+                        </filter>
+                        <filter id="elecGovGlow" x="-20%" y="-20%" width="140%" height="140%">
+                          <feDropShadow dx="0" dy="4" stdDeviation="4.5" floodColor="#dc2626" floodOpacity="0.2" />
+                        </filter>
+                      </defs>
+
                       {/* Grid Lines */}
                       {[0, 0.25, 0.5, 0.75, 1].map((pct, i) => (
                         <g key={i}>
-                          <line x1="60" y1={190 - pct * 150} x2={elecChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" />
+                          <line x1="60" y1={190 - pct * 150} x2={elecChartWidth - 20} y2={190 - pct * 150} stroke="#f1f5f9" strokeWidth="1" strokeDasharray={i > 0 && i < 4 ? "4 4" : "0"} />
                           <text x="50" y={194 - pct * 150} textAnchor="end" fontSize="9" fill="#94a3b8" fontWeight="bold">
                             {(maxElecVal * pct).toLocaleString(undefined, { maximumFractionDigits: 0 })}
                           </text>
@@ -1055,19 +1230,15 @@ export default function ReportsPage() {
                         return (
                           <g key={d.month} className="group">
                             {/* Collected Bar */}
-                            <rect x={x} y={190 - colH} width="22" height={colH} rx="3" fill="url(#elecColGrad)" opacity="0.9" className="transition-all duration-300 hover:opacity-100">
-                              <title>เก็บจากลูกบ้าน: {d.collected.toLocaleString()} ฿</title>
-                            </rect>
-                            <text x={x + 11} y={183 - colH} textAnchor="middle" fontSize="8" fill="#78350f" fontWeight="bold" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              {d.collected > 0 ? `${(d.collected/1000).toFixed(1)}K` : ''}
+                            <rect x={x} y={190 - colH} width="22" height={colH} rx="5.5" fill="url(#elecColGrad)" filter="url(#elecColGlow)" className="transition-all duration-300 transform origin-bottom hover:scale-y-[1.04] cursor-pointer" />
+                            <text x={x + 11} y={183 - colH} textAnchor="middle" fontSize="8" fill="#78350f" fontWeight="black" className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              {d.collected > 0 ? `${(d.collected/1000).toFixed(0)}K` : ''}
                             </text>
 
                             {/* Paid Gov Bar */}
-                            <rect x={x + 26} y={190 - govH} width="22" height={govH} rx="3" fill="url(#elecGovGrad)" opacity="0.9" className="transition-all duration-300 hover:opacity-100">
-                              <title>จ่ายบิลไฟฟ้าหลวง: {d.gov_paid.toLocaleString()} ฿</title>
-                            </rect>
-                            <text x={x + 37} y={183 - govH} textAnchor="middle" fontSize="8" fill="#991b1b" fontWeight="bold" className="opacity-0 group-hover:opacity-100 transition-opacity">
-                              {d.gov_paid > 0 ? `${(d.gov_paid/1000).toFixed(1)}K` : ''}
+                            <rect x={x + 26} y={190 - govH} width="22" height={govH} rx="5.5" fill="url(#elecGovGrad)" filter="url(#elecGovGlow)" className="transition-all duration-300 transform origin-bottom hover:scale-y-[1.04] cursor-pointer" />
+                            <text x={x + 37} y={183 - govH} textAnchor="middle" fontSize="8" fill="#991b1b" fontWeight="black" className="opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                              {d.gov_paid > 0 ? `${(d.gov_paid/1000).toFixed(0)}K` : ''}
                             </text>
 
                             {/* X-Axis Month Tag */}
@@ -1076,25 +1247,76 @@ export default function ReportsPage() {
                             </text>
                             
                             {/* Margin badge at bar bottom */}
-                            <text x={x + 24} y={224} textAnchor="middle" fontSize="8" fill={d.margin >= 0 ? "#059669" : "#e11d48"} fontWeight="black">
+                            <text x={x + 24} y={224} textAnchor="middle" fontSize="8.5" fill={d.margin >= 0 ? "#059669" : "#e11d48"} fontWeight="black">
                               {d.margin >= 0 ? `+${Math.round(d.margin)}` : Math.round(d.margin)}
                             </text>
+
+                            {/* Large Interactive Hover Capture Box */}
+                            <rect 
+                              x={x - 4} 
+                              y={10} 
+                              width="56" 
+                              height="185" 
+                              fill="transparent" 
+                              className="cursor-pointer"
+                              onMouseEnter={(e) => {
+                                const rect = e.currentTarget.getBoundingClientRect();
+                                setElecTooltip({
+                                  month: formatMonthThai(d.month),
+                                  collected: d.collected,
+                                  gov_paid: d.gov_paid,
+                                  margin: d.margin,
+                                  x: rect.left + rect.width / 2,
+                                  y: rect.top - 8
+                                });
+                              }}
+                              onMouseLeave={() => setElecTooltip(null)}
+                            />
                           </g>
                         );
                       })}
-
-                      {/* Definitions */}
-                      <defs>
-                        <linearGradient id="elecColGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#f59e0b" />
-                          <stop offset="100%" stopColor="#d97706" />
-                        </linearGradient>
-                        <linearGradient id="elecGovGrad" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#f43f5e" />
-                          <stop offset="100%" stopColor="#e11d48" />
-                        </linearGradient>
-                      </defs>
                     </svg>
+
+                    {/* Floating Glassmorphic Tooltip Card */}
+                    {elecTooltip && (
+                      <div 
+                        className="fixed z-50 pointer-events-none transform -translate-x-1/2 -translate-y-full bg-white/95 backdrop-blur-md border border-slate-100 shadow-[0_12px_40px_rgba(0,0,0,0.12)] rounded-2xl p-4 min-w-[210px] transition-all duration-120 ease-out"
+                        style={{ left: elecTooltip.x, top: elecTooltip.y }}
+                      >
+                        <div className="flex items-center gap-1.5 text-[11px] font-black text-slate-400 uppercase tracking-wider mb-2">
+                          <span>🗓️ รอบบิล:</span> {elecTooltip.month}
+                        </div>
+                        <div className="space-y-1.5 text-xs font-bold">
+                          <div className="flex justify-between items-center gap-4">
+                            <span className="text-slate-500 font-semibold flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 rounded bg-amber-400 inline-block shadow-[0_1.5px_4px_rgba(245,158,11,0.35)]"></span>
+                              ลูกบ้านจ่าย:
+                            </span>
+                            <span className="text-amber-600 font-extrabold text-right">
+                              {elecTooltip.collected.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                            </span>
+                          </div>
+                          <div className="flex justify-between items-center gap-4">
+                            <span className="text-slate-500 font-semibold flex items-center gap-1">
+                              <span className="w-2.5 h-2.5 rounded bg-rose-400 inline-block shadow-[0_1.5px_4px_rgba(244,63,94,0.35)]"></span>
+                              ค่าไฟหลวง:
+                            </span>
+                            <span className="text-rose-600 font-extrabold text-right">
+                              {elecTooltip.gov_paid.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                            </span>
+                          </div>
+                          <div className="border-t border-dashed border-slate-100 pt-2 mt-2 flex justify-between items-center gap-4">
+                            <span className="text-slate-700 font-black flex items-center gap-1">
+                              <span>⚡</span> ส่วนต่างสุทธิ:
+                            </span>
+                            <span className={`font-black ${elecTooltip.margin >= 0 ? "text-emerald-600" : "text-rose-600"}`}>
+                              {elecTooltip.margin >= 0 ? "+" : ""}
+                              {elecTooltip.margin.toLocaleString("th-TH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿
+                            </span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                   <div className="flex justify-center gap-6 mt-2 text-xs font-bold text-slate-500">
                     <span className="flex items-center gap-2">

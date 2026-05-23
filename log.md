@@ -1,5 +1,16 @@
 # Activity Log
 
+## [2026-05-23] Premium State-of-the-Art SVG Charts Visual Overhaul (Approve & Execution Complete 100%)
+- **Premium SVG Charts Redesign & Interactive Overhaul:**
+  - *Reports Page Chart Overhaul (`reports/page.tsx`):* Redesigned the Cashflow, Water Utility, and Electricity Utility dual bar SVG charts. Upgraded the bars to be modern and curved (`rx="5.5"`), and implemented vibrant **HSL tailored linear gradients** paired with SVG Neon Drop-Shadow Filters in `<defs>` to emit custom glows.
+  - *Dormitory Utilities Trends Curve (`dormitory/utilities/page.tsx`):* Overhauled the 12-month utility usage trend chart. Swapped thin polylines with thick (`strokeWidth="4.5"`) neon-glowing polylines and subtle filled areas beneath curves. Swapped standard solid gridlines for modern semi-transparent dashed lines (`strokeDasharray="4 4"`).
+  - *Glassmorphic HTML Absolute Floating Tooltips:* Implemented React hover states capturing mouse coordinates and displaying beautiful **Glassmorphic Floating Tooltip Cards** (`backdrop-blur-md bg-white/95`) with smooth tracking, clean shadows, customized spacing, and emojis, completely replacing basic browser `<title>` tooltip elements.
+  - *Large Hover Capture System:* Deployed invisible capture strips (`rect fill="transparent"`) matching chart groupings, allowing tooltips to trigger easily and fluidly as the cursor glides across chart zones.
+- **Verification:**
+  - *100% Type Checked:* Verified zero TypeScript warnings or errors in the frontend by running `npx tsc --noEmit` with exit code 0.
+  - *100% Build Verified:* Ran `npm run build` Turbopack production compiler, building all optimized static assets successfully.
+  - *Obsidian Vault Synced:* Updated Obsidian metadata in `MEMORY.md` and checklisted `task.md` / `walkthrough.md`.
+
 ## [2026-05-23] Phase 5: Asset & Depreciation Tracker (Approve & Execution Complete 100%)
 - **Phase 5: Asset & Depreciation Tracker (TAS 16 Standard):**
   - *Data Model & Schema Setup:* Deployed SQLite/PostgreSQL `assets` table schema mapping durable assets to business units. Programmed strict Straight-Line monthly depreciation logic: `(Cost - Salvage Value) / (Useful Life * 12)`.
