@@ -1454,7 +1454,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             unpaid_bills = []
             
             if room.payment_status != "paid":
-                room_total = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+                room_total = (room.rate or 0.0) + (room.water_cost or 0.0) + (room.electric_cost or 0.0) + (room.cleaning_fee or 0.0) + (room.other_fee or 0.0) + (room.fine_cost or 0.0)
                 unpaid_bills.append({
                     "type": "dorm",
                     "amount": float(room_total),
@@ -2063,10 +2063,10 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             lines = ["🔔 สรุปบิลค้างชำระ"]
             if unpaid_rooms:
                 lines.append(f"\n🏢 หอพัก ({len(unpaid_rooms)} ห้อง):")
-                for r in unpaid_rooms[:15]: lines.append(f"  ห้อง {r.number} - {r.tenant}: {(r.rate + r.water_cost + r.electric_cost + r.cleaning_fee + r.other_fee + r.fine_cost):,.0f}฿")
+                for r in unpaid_rooms[:15]: lines.append(f"  ห้อง {r.number} - {r.tenant}: {((r.rate or 0.0) + (r.water_cost or 0.0) + (r.electric_cost or 0.0) + (r.cleaning_fee or 0.0) + (r.other_fee or 0.0) + (r.fine_cost or 0.0)):,.0f}฿")
             if unpaid_houses:
                 lines.append(f"\n🏠 บ้านเช่า ({len(unpaid_houses)} หลัง):")
-                for h in unpaid_houses: lines.append(f"  {h.name} - {h.tenant_name}: {(h.monthly_rent + h.water_bill + h.electric_bill):,.0f}฿")
+                for h in unpaid_houses: lines.append(f"  {h.name} - {h.tenant_name}: {((h.monthly_rent or 0.0) + (h.water_bill or 0.0) + (h.electric_bill or 0.0)):,.0f}฿")
             if unpaid_jobs:
                 lines.append(f"\n🔧 อู่ซ่อมรถ ({len(unpaid_jobs)} งาน):")
                 for j in unpaid_jobs[:10]: lines.append(f"  {j.license_plate} ({j.customer_name}): {j.total_cost:,.0f}฿")
@@ -2954,8 +2954,16 @@ def delete_business_unit(unit_id: int, db: Session = Depends(get_db)):
     if not db_unit: raise HTTPException(status_code=404, detail="Not found")
     
     # Cascade check to protect database and bookkeeping integrity
-    has_rooms = db.query(models.DormRoom).filter(models.DormRoom.dorm_key == db_unit.name).first()
-    has_houses = db.query(models.RentalHouse).filter(models.RentalHouse.name == db_unit.name).first()
+    if db_unit.type == models.UnitType.DORMITORY:
+        has_rooms = db.query(models.DormRoom).first() is not None
+    else:
+        has_rooms = False
+        
+    if db_unit.type == models.UnitType.HOUSE:
+        has_houses = db.query(models.RentalHouse).first() is not None
+    else:
+        has_houses = False
+
     has_invoices = db.query(models.Invoice).filter(models.Invoice.unit_id == unit_id).first()
     has_tx = db.query(models.Transaction).filter(models.Transaction.unit_id == unit_id).first()
     
@@ -2987,7 +2995,7 @@ async def verify_slip(type: str, target_id: str, qr_data: Optional[str] = None, 
             ref_id = f"dorm_payment_{room.id}_{current_month_key}"
             tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
             return {"status": "already_paid", "amount": room.rate, "ref_no": tx.reference_id if tx else "ALREADY_PAID"}
-        expected_amount = room.rate + room.water_cost + room.electric_cost + room.cleaning_fee + room.other_fee + room.fine_cost
+        expected_amount = (room.rate or 0.0) + (room.water_cost or 0.0) + (room.electric_cost or 0.0) + (room.cleaning_fee or 0.0) + (room.other_fee or 0.0) + (room.fine_cost or 0.0)
         
     elif type == "house":
         house = db.query(models.RentalHouse).filter(models.RentalHouse.id == target_id).first()
@@ -2996,7 +3004,7 @@ async def verify_slip(type: str, target_id: str, qr_data: Optional[str] = None, 
             ref_id = f"house_payment_{house.id}_{current_month_key}"
             tx = db.query(models.Transaction).filter(models.Transaction.reference_id == ref_id).first()
             return {"status": "already_paid", "amount": house.monthly_rent, "ref_no": tx.reference_id if tx else "ALREADY_PAID"}
-        expected_amount = house.monthly_rent + house.water_bill + house.electric_bill
+        expected_amount = (house.monthly_rent or 0.0) + (house.water_bill or 0.0) + (house.electric_bill or 0.0)
         
     elif type == "garage":
         job = db.query(models.GarageJob).filter(models.GarageJob.id == int(target_id)).first()

@@ -28,12 +28,6 @@ export interface HouseDashboard {
   pendingPayments: RentalHouse[];
 }
 
-const DEFAULT_HOUSES: RentalHouse[] = [
-  { id: "h1", name: "บ้านเช่า หลังที่ 1", tenantName: "", monthlyRent: 5000, waterBill: 0, electricBill: 0, paymentStatus: "unpaid" },
-  { id: "h2", name: "บ้านเช่า หลังที่ 2", tenantName: "", monthlyRent: 4500, waterBill: 0, electricBill: 0, paymentStatus: "unpaid" },
-  { id: "h3", name: "บ้านเช่า หลังที่ 3", tenantName: "", monthlyRent: 6000, waterBill: 0, electricBill: 0, paymentStatus: "unpaid" },
-];
-
 import { fetchRentalHouses } from "./api";
 
 export function useHouseData(): HouseDashboard {

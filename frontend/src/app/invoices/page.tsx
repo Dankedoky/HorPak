@@ -124,7 +124,7 @@ export default function InvoicesPage() {
         title: newTitle.trim(),
         amount: amount,
         status: newStatus,
-        due_date: newDueDate ? new Date(newDueDate).toISOString() : null,
+        due_date: newDueDate ? `${newDueDate}T00:00:00` : null,
         customer_id: parseInt(newCustomerId),
         unit_id: parseInt(newUnitId)
       });
@@ -154,7 +154,7 @@ export default function InvoicesPage() {
     setEditAmount(inv.amount.toString());
     setEditCustomerId(inv.customer_id.toString());
     setEditUnitId(inv.unit_id.toString());
-    setEditDueDate(inv.due_date ? new Date(inv.due_date).toISOString().split('T')[0] : "");
+    setEditDueDate(inv.due_date ? inv.due_date.split('T')[0] : "");
     setEditStatus(inv.status);
     setShowEditModal(true);
   };
@@ -174,7 +174,7 @@ export default function InvoicesPage() {
         title: editTitle.trim(),
         amount: amount,
         status: editStatus,
-        due_date: editDueDate ? new Date(editDueDate).toISOString() : null,
+        due_date: editDueDate ? `${editDueDate}T00:00:00` : null,
         customer_id: parseInt(editCustomerId),
         unit_id: parseInt(editUnitId)
       });
