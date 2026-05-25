@@ -4,7 +4,7 @@ import { usePathname, useRouter } from "next/navigation";
 import Link from 'next/link';
 import SidebarLinks from "./SidebarLinks";
 import { useAuth } from "@/lib/useAuth";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 export default function ClientLayout({
   children,
@@ -13,6 +13,7 @@ export default function ClientLayout({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { isAuthenticated, logout } = useAuth();
   const isLoginPage = pathname === "/login";
 
@@ -101,12 +102,87 @@ export default function ClientLayout({
             </div>
             <span className="font-extrabold text-lg text-slate-900 tracking-tight">Sovereign</span>
           </div>
-          <button className="text-slate-500 hover:bg-slate-100 p-2 rounded-lg">
+          <button 
+            onClick={() => setMobileMenuOpen(true)}
+            className="text-slate-500 hover:bg-slate-100 p-2 rounded-lg cursor-pointer"
+          >
             <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
         </header>
+
+        {/* Mobile Menu Drawer */}
+        {mobileMenuOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden flex">
+            {/* Backdrop */}
+            <div 
+              className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm transition-opacity" 
+              onClick={() => setMobileMenuOpen(false)}
+            />
+            
+            {/* Drawer Panel */}
+            <div className="relative flex flex-col w-64 max-w-xs bg-white h-full shadow-2xl border-r border-slate-200 z-50 animate-[slideInLeft_0.22s_ease-out]">
+              {/* Inject local keyframes safely */}
+              <style>{`
+                @keyframes slideInLeft {
+                  from { transform: translateX(-100%); }
+                  to { transform: translateX(0); }
+                }
+              `}</style>
+
+              {/* Drawer Header */}
+              <div className="p-6 border-b border-slate-100 flex justify-between items-center">
+                <Link href="/" className="flex items-center gap-3" onClick={() => setMobileMenuOpen(false)}>
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-blue-600 to-indigo-700">
+                    <span className="text-white font-bold text-sm select-none">S</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="font-extrabold text-[14px] tracking-tight text-slate-900 leading-tight">Sovereign</span>
+                    <span className="text-[10px] font-bold text-blue-600 tracking-widest uppercase">System</span>
+                  </div>
+                </Link>
+                <button 
+                  onClick={() => setMobileMenuOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded-lg cursor-pointer transition"
+                >
+                  ✕
+                </button>
+              </div>
+              
+              {/* Drawer Links */}
+              <nav className="flex-1 overflow-y-auto py-6 px-4 space-y-1.5 custom-scrollbar" onClick={() => setMobileMenuOpen(false)}>
+                <SidebarLinks />
+              </nav>
+              
+              {/* Drawer Footer (Logout) */}
+              <div className="p-4 border-t border-slate-100">
+                <button 
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    if (window.confirm("คุณต้องการออกจากระบบใช่หรือไม่?")) {
+                      logout();
+                    }
+                  }}
+                  className="w-full flex items-center justify-between p-2 rounded-xl hover:bg-red-50 text-slate-700 hover:text-red-600 transition group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-indigo-100 border-2 border-white shadow-sm flex items-center justify-center text-indigo-700 group-hover:bg-red-100 group-hover:text-red-700 transition font-bold text-sm">
+                      AD
+                    </div>
+                    <div className="flex flex-col text-left">
+                      <span className="text-xs font-bold">Admin User</span>
+                      <span className="text-[10px] text-slate-500">Owner</span>
+                    </div>
+                  </div>
+                  <svg className="w-4 h-4 opacity-40 group-hover:opacity-100 transition" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                  </svg>
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         <main className="flex-1 p-4 md:p-8 overflow-x-hidden">
           <div className="max-w-[1600px] mx-auto w-full">
