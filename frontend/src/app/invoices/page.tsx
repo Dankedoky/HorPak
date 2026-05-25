@@ -44,7 +44,6 @@ export default function InvoicesPage() {
   const [units, setUnits] = useState<BusinessUnit[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
 
   // Filter and Search States
   const [searchTerm, setSearchTerm] = useState("");
@@ -89,10 +88,8 @@ export default function InvoicesPage() {
       setInvoices(invList || []);
       setCustomers(custList || []);
       setUnits(unitList || []);
-      setError(null);
     } catch (err: unknown) {
       console.error(err);
-      setError("ไม่สามารถดึงข้อมูลใบแจ้งหนี้ได้ กรุณาลองใหม่อีกครั้ง");
     } finally {
       setIsLoading(false);
     }
@@ -141,8 +138,9 @@ export default function InvoicesPage() {
       setShowCreateModal(false);
 
       await loadData();
-    } catch (err: any) {
-      alert("ไม่สามารถบันทึกข้อมูลใบแจ้งหนี้ได้: " + err.message);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert("ไม่สามารถบันทึกข้อมูลใบแจ้งหนี้ได้: " + errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -197,8 +195,9 @@ export default function InvoicesPage() {
 
       setShowEditModal(false);
       await loadData();
-    } catch (err: any) {
-      alert("ไม่สามารถอัปเดตข้อมูลใบแจ้งหนี้ได้: " + err.message);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert("ไม่สามารถอัปเดตข้อมูลใบแจ้งหนี้ได้: " + errMsg);
     } finally {
       setIsSubmitting(false);
     }
@@ -212,8 +211,9 @@ export default function InvoicesPage() {
       triggerToast("🗑️ ลบใบแจ้งหนี้ออกจากระบบเรียบร้อยแล้ว!");
       setSelectedInvoice(null);
       await loadData();
-    } catch (err: any) {
-      alert("เกิดข้อผิดพลาดในการลบบิล: " + err.message);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert("ไม่สามารถลบใบแจ้งหนี้ได้: " + errMsg);
     }
   };
 
@@ -232,8 +232,9 @@ export default function InvoicesPage() {
 
       triggerToast(`💸 อัปเดตสถานะบิล ID: ${invoiceId} เป็น "${status === 'paid' ? 'ชำระเงินแล้ว' : status === 'cancelled' ? 'ยกเลิกบิล' : 'ค้างชำระ'}" เรียบร้อย!`);
       loadData();
-    } catch (err: any) {
-      alert("เกิดข้อผิดพลาดในการอัปเดตสถานะบิล: " + err.message);
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      alert("เกิดข้อผิดพลาดในการอัปเดตสถานะบิล: " + errMsg);
     }
   };
 
@@ -426,7 +427,7 @@ export default function InvoicesPage() {
           <div>
             <select
               value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value as any)}
+              onChange={(e) => setFilterStatus(e.target.value as "all" | "paid" | "unpaid" | "cancelled")}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition outline-none text-xs font-black cursor-pointer"
             >
               <option value="all">📁 ทุกสถานะชำระบิล</option>
@@ -454,7 +455,7 @@ export default function InvoicesPage() {
           <div>
             <select
               value={sortBy}
-              onChange={(e) => setSortBy(e.target.value as any)}
+              onChange={(e) => setSortBy(e.target.value as "newest" | "oldest" | "highest" | "lowest")}
               className="w-full px-3 py-2.5 bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition outline-none text-xs font-black cursor-pointer"
             >
               <option value="newest">📅 วันที่ออกบิล: ล่าสุด</option>
@@ -580,7 +581,7 @@ export default function InvoicesPage() {
                     <td className="px-6 py-4 text-center" onClick={(e) => e.stopPropagation()}>
                       <select
                         value={inv.status}
-                        onChange={(e) => handleUpdateStatus(inv.id, e.target.value as any)}
+                        onChange={(e) => handleUpdateStatus(inv.id, e.target.value as "paid" | "unpaid" | "cancelled")}
                         className={`px-2.5 py-1 rounded-xl text-[9px] font-black uppercase text-center border focus:ring-1 focus:ring-slate-300 outline-none cursor-pointer transition ${
                           inv.status === 'paid' ? 'bg-emerald-50 border-emerald-200 text-emerald-600' :
                           inv.status === 'cancelled' ? 'bg-slate-100 border-slate-200 text-slate-400' :
@@ -704,7 +705,7 @@ export default function InvoicesPage() {
                   <label className="block text-[10px] font-bold text-slate-400 uppercase">สถานะเริ่มต้น</label>
                   <select
                     value={newStatus}
-                    onChange={(e) => setNewStatus(e.target.value as any)}
+                    onChange={(e) => setNewStatus(e.target.value as "paid" | "unpaid")}
                     className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-xs font-bold text-slate-700 cursor-pointer"
                   >
                     <option value="unpaid">🔴 ค้างชำระ</option>
@@ -843,7 +844,7 @@ export default function InvoicesPage() {
                   <label className="block text-[10px] font-bold text-slate-400 uppercase">สถานะบิล</label>
                   <select
                     value={editStatus}
-                    onChange={(e) => setEditStatus(e.target.value as any)}
+                    onChange={(e) => setEditStatus(e.target.value as "paid" | "unpaid" | "cancelled")}
                     className="w-full px-2.5 py-2 bg-slate-50 border border-slate-200 rounded-xl focus:border-blue-500 focus:ring-1 focus:ring-blue-500 outline-none text-xs font-bold text-slate-700 cursor-pointer"
                   >
                     <option value="unpaid">🔴 ค้างชำระ</option>

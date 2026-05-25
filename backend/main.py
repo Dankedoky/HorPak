@@ -1439,7 +1439,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 )
                 await get_line_bot_api().reply_message(
                     ReplyMessageRequest(
-                        reply_token=event.reply_token,
+                        replyToken=event.reply_token,
                         messages=[TextMessage(text=reply_text)]
                     )
                 )
@@ -1483,7 +1483,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 )
                 await get_line_bot_api().reply_message(
                     ReplyMessageRequest(
-                        reply_token=event.reply_token,
+                        replyToken=event.reply_token,
                         messages=[TextMessage(text=reply_text)]
                     )
                 )
@@ -1550,7 +1550,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                             "❌ ระบบไม่สามารถยืนยันสลิปนี้ได้ เนื่องจากสลิปโอนเงินนี้เคยถูกส่งเพื่อยืนยันยอดเงินไปแล้วในระบบ เพื่อความปลอดภัยป้องกันการตรวจจับซ้ำ กรุณาตรวจสอบหรือติดต่อแอดมินโดยตรงค่ะ"
                         )
                         await get_line_bot_api().reply_message(
-                            ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
+                            ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=reply_text)])
                         )
                         continue
                         
@@ -1575,7 +1575,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                             f"กรุณาโอนเงินให้ตรงตามยอดบิล หรือติดต่อแอดมินโดยตรงเพื่อปรับปรุงยอดค่ะ 🙏😊"
                         )
                         await get_line_bot_api().reply_message(
-                            ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)])
+                            ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=reply_text)])
                         )
                         continue
                 else:
@@ -1670,7 +1670,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 )
                 await get_line_bot_api().reply_message(
                     ReplyMessageRequest(
-                        reply_token=event.reply_token,
+                        replyToken=event.reply_token,
                         messages=[TextMessage(text=reply_text)]
                     )
                 )
@@ -1684,7 +1684,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 )
                 await get_line_bot_api().reply_message(
                     ReplyMessageRequest(
-                        reply_token=event.reply_token,
+                        replyToken=event.reply_token,
                         messages=[TextMessage(text=reply_text)]
                     )
                 )
@@ -1698,7 +1698,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 # packageId 11537 and stickerId 52002735 is a very cute official LINE Cat sticker
                 await get_line_bot_api().reply_message(
                     ReplyMessageRequest(
-                        reply_token=event.reply_token,
+                        replyToken=event.reply_token,
                         messages=[
                             TextMessage(text=reply_text),
                             StickerMessage(packageId="11537", stickerId="52002735")
@@ -1710,7 +1710,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 try:
                     await get_line_bot_api().reply_message(
                         ReplyMessageRequest(
-                            reply_token=event.reply_token,
+                            replyToken=event.reply_token,
                             messages=[TextMessage(text=reply_text)]
                         )
                     )
@@ -1736,7 +1736,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 "!!!หากมีเหตุเร่งด่วน!!!\n"
                 "โทร: 081-933-0490"
             )
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            await get_line_bot_api().reply_message(ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
 
         if text in ["แจ้งโอนเงิน", "ส่งสลิป", "ส่งสลิปโอนเงิน"]:
@@ -1752,7 +1752,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 "หากมีเหตุเร่งด่วน(oh no!)(!)\n"
                 "โทร: 081-933-0490 หรือ 093-130-5336"
             )
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            await get_line_bot_api().reply_message(ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
 
         if text.startswith("แจ้งซ่อม"):
@@ -1842,7 +1842,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                     f"ระบบได้ส่งการแจ้งเตือนไปยังผู้ดูแลระบบและช่างเรียบร้อยแล้ว เราจะเร่งดำเนินการตรวจสอบให้โดยเร็วที่สุดครับ ขอบคุณครับ 🙏"
                 )
                 
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            await get_line_bot_api().reply_message(ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
 
         # 👤 Auto-binding pattern: [Nickname] หอ [DormKey] ห้อง [RoomNumber]
@@ -1931,7 +1931,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
 
             await get_line_bot_api().reply_message(
                 ReplyMessageRequest(
-                    reply_token=event.reply_token,
+                    replyToken=event.reply_token,
                     messages=[TextMessage(text=reply_text)]
                 )
             )
@@ -2006,7 +2006,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                         current_month_key = get_current_billing_month()
                         flex_payload = create_dorm_bill_flex(room, current_month_key)
                         reply_message = FlexMessage(
-                            alt_text=f"ใบแจ้งยอดค่าเช่าห้อง {room.number} ประจำรอบบิล {current_month_key}",
+                            altText=f"ใบแจ้งยอดค่าเช่าห้อง {room.number} ประจำรอบบิล {current_month_key}",
                             contents=FlexContainer.from_json(json.dumps(flex_payload))
                         )
                     else:
@@ -2014,13 +2014,13 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                         room_number = room.number if room else "-"
                         flex_payload = create_consolidated_bill_flex(tenant_name, room_number, unpaid_items, grand_total)
                         reply_message = FlexMessage(
-                            alt_text=f"สรุปยอดค้างชำระทั้งหมดของคุณ {tenant_name}",
+                            altText=f"สรุปยอดค้างชำระทั้งหมดของคุณ {tenant_name}",
                             contents=FlexContainer.from_json(json.dumps(flex_payload))
                         )
                     
             await get_line_bot_api().reply_message(
                 ReplyMessageRequest(
-                    reply_token=event.reply_token,
+                    replyToken=event.reply_token,
                     messages=[reply_message]
                 )
             )
@@ -2043,7 +2043,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             total_inc = sum(t.amount for t in today_tx if t.type == models.TransactionType.INCOME)
             total_exp = sum(t.amount for t in today_tx if t.type == models.TransactionType.EXPENSE)
             reply_text = f"📅 สรุปยอดบัญชีวันนี้\n📈 รายรับรวม: +{total_inc:,.2f} บาท\n📉 รายจ่ายรวม: -{total_exp:,.2f} บาท\n💰 คงเหลือสุทธิ: {total_inc - total_exp:,.2f} บาท"
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            await get_line_bot_api().reply_message(ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
 
         if text == "ยอดเงิน":
@@ -2053,7 +2053,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             total_exp_all = sum(t.amount for t in transactions if t.type == models.TransactionType.EXPENSE)
             lines = [f"🏢 {u.name}: {(sum(t.amount for t in transactions if t.unit_id == u.id and t.type == models.TransactionType.INCOME) - sum(t.amount for t in transactions if t.unit_id == u.id and t.type == models.TransactionType.EXPENSE)):,.2f} บาท" for u in units]
             reply_text = f"💰 ยอดเงินคงเหลือแต่ละธุรกิจ\n{chr(10).join(lines)}\n💵 ยอดรวมทั้งหมด: {total_inc_all - total_exp_all:,.2f} บาท"
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            await get_line_bot_api().reply_message(ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
 
         if text == "ทวงบิล":
@@ -2071,7 +2071,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                 lines.append(f"\n🔧 อู่ซ่อมรถ ({len(unpaid_jobs)} งาน):")
                 for j in unpaid_jobs[:10]: lines.append(f"  {j.license_plate} ({j.customer_name}): {j.total_cost:,.0f}฿")
             if not (unpaid_rooms or unpaid_houses or unpaid_jobs): lines.append("\n✅ ไม่มีบิลค้างชำระครับ!")
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=chr(10).join(lines))]))
+            await get_line_bot_api().reply_message(ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=chr(10).join(lines))]))
             continue
 
         match = re.match(r'^(รับ|จ่าย)\s+(\d+(?:\.\d+)?)\s+(.*)$', text, re.IGNORECASE)
@@ -2082,7 +2082,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             db_tx = models.Transaction(type=tx_type, amount=amount, description=description, unit_id=unit.id if unit else None)
             db.add(db_tx); db.commit(); db.refresh(db_tx)
             reply_text = f"✅ บันทึก{'รายรับ' if action == 'รับ' else 'รายจ่าย'}สำเร็จ!\n💰 จำนวนเงิน: {amount:,.2f} บาท\n📝 รายละเอียด: {description}\n🏢 ธุรกิจ: {unit.name if unit else 'ทั่วไป'}"
-            await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
+            await get_line_bot_api().reply_message(ReplyMessageRequest(replyToken=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
 
         # ⚠️ Fallback response for unrecognized text messages
@@ -2100,7 +2100,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
         try:
             await get_line_bot_api().reply_message(
                 ReplyMessageRequest(
-                    reply_token=event.reply_token,
+                    replyToken=event.reply_token,
                     messages=[TextMessage(text=reply_text)]
                 )
             )
@@ -2137,7 +2137,7 @@ async def send_billing_reminder(send_line: bool = False, db: Session = Depends(g
                     to=line_user_id,
                     messages=[
                         FlexMessage(
-                            alt_text=f"ใบแจ้งยอดค่าเช่าห้อง {room.number} ประจำรอบบิล {current_month_key}",
+                            altText=f"ใบแจ้งยอดค่าเช่าห้อง {room.number} ประจำรอบบิล {current_month_key}",
                             contents=FlexContainer.from_json(json.dumps(flex_payload))
                         )
                     ]
