@@ -2188,6 +2188,10 @@ async def update_maintenance_ticket(ticket_id: int, ticket_update: schemas.Maint
     ticket = db.query(models.MaintenanceTicket).filter(models.MaintenanceTicket.id == ticket_id).first()
     if not ticket:
         raise HTTPException(status_code=404, detail="Maintenance ticket not found")
+    if ticket_update.room_number is not None:
+        ticket.room_number = ticket_update.room_number
+    if ticket_update.description is not None:
+        ticket.description = ticket_update.description
         
     if ticket_update.status is not None:
         old_status = ticket.status

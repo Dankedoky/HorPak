@@ -447,6 +447,19 @@ export async function updateMaintenanceTicketStatus(ticketId: number, status: st
   return res.json();
 }
 
+export async function updateMaintenanceTicket(ticketId: number, updateData: { status?: string; room_number?: string; description?: string }) {
+  const res = await authFetch(`${API_BASE_URL}/maintenance-tickets/${ticketId}/`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updateData),
+  });
+  if (!res.ok) {
+    const err = await res.json();
+    throw new Error(err.detail || "เกิดข้อผิดพลาดในการอัปเดตใบแจ้งซ่อม");
+  }
+  return res.json();
+}
+
 export async function deleteMaintenanceTicket(ticketId: number) {
   const res = await authFetch(`${API_BASE_URL}/maintenance-tickets/${ticketId}/`, {
     method: 'DELETE',

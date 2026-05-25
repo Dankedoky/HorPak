@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { fetchMaintenanceTickets, updateMaintenanceTicketStatus, deleteMaintenanceTicket } from "@/lib/api";
+import { fetchMaintenanceTickets, updateMaintenanceTicketStatus, deleteMaintenanceTicket, updateMaintenanceTicket } from "@/lib/api";
 
 interface MaintenanceTicket {
   id: number;
@@ -41,6 +41,13 @@ export default function MaintenancePage() {
   const [filterTab, setFilterTab] = useState<"all" | "pending" | "in_progress" | "resolved">("all");
   const [searchQuery, setSearchQuery] = useState("");
   const [updatingId, setUpdatingId] = useState<number | null>(null);
+
+  // Edit ticket modal states
+  const [editingTicket, setEditingTicket] = useState<MaintenanceTicket | null>(null);
+  const [editRoomNumber, setEditRoomNumber] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [editStatus, setEditStatus] = useState("");
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const loadTickets = async () => {
     setLoading(true);
@@ -92,6 +99,34 @@ export default function MaintenancePage() {
       alert(`❌ ${err.message || "เกิดข้อผิดพลาดในการลบใบแจ้งซ่อม"}`);
     } finally {
       setUpdatingId(null);
+    }
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingTicket) return;
+    setSavingEdit(true);
+    try {
+      const updated = await updateMaintenanceTicket(editingTicket.id, {
+        room_number: editRoomNumber,
+        description: editDescription,
+        status: editStatus
+      });
+      if (updated && updated.id) {
+        setTickets(prev => prev.map(t => t.id === editingTicket.id ? { 
+          ...t, 
+          room_number: editRoomNumber, 
+          description: editDescription,
+          status: editStatus,
+          resolved_at: updated.resolved_at
+        } : t));
+        setEditingTicket(null);
+      }
+    } catch (err: any) {
+      console.error("Error editing ticket:", err);
+      alert(`❌ ${err.message || "เกิดข้อผิดพลาดในการแก้ไขใบแจ้งซ่อม"}`);
+    } finally {
+      setSavingEdit(false);
     }
   };
 
@@ -273,21 +308,9 @@ export default function MaintenancePage() {
                 <div>
                   {/* Badge & Ticket ID */}
                   <div className="flex justify-between items-center mb-4">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-black text-slate-400 tracking-wider">
-                        TICKET #{ticket.id}
-                      </span>
-                      <button
-                        onClick={() => handleDeleteTicket(ticket.id)}
-                        disabled={updatingId === ticket.id}
-                        className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-1.5 rounded-lg transition-colors active:scale-95 duration-200"
-                        title="ลบใบงาน"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                        </svg>
-                      </button>
-                    </div>
+                    <span className="text-[11px] font-black text-slate-400 tracking-wider">
+                      TICKET #{ticket.id}
+                    </span>
                     <span className={`px-2.5 py-1 text-[10px] font-black rounded-lg border flex items-center gap-1.5 ${config.color}`}>
                       <span>{config.badge}</span>
                       <span>{config.label}</span>
@@ -401,10 +424,114 @@ export default function MaintenancePage() {
                       </span>
                     </div>
                   )}
+
+                  {/* Edit / Delete Buttons Row */}
+                  <div className="flex gap-2 pt-1 border-t border-slate-100/50 mt-3">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditingTicket(ticket);
+                        setEditRoomNumber(ticket.room_number);
+                        setEditDescription(ticket.description);
+                        setEditStatus(ticket.status);
+                      }}
+                      className="flex-1 py-2 bg-slate-50 hover:bg-slate-100 hover:text-blue-600 text-slate-600 font-extrabold rounded-xl text-[10px] tracking-wider transition-all border border-slate-200/50 active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <span>✏️</span>
+                      <span>แก้ไขข้อมูล</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteTicket(ticket.id)}
+                      className="flex-1 py-2 bg-rose-50 hover:bg-rose-100 text-rose-600 font-extrabold rounded-xl text-[10px] tracking-wider transition-all border border-rose-100/30 active:scale-95 flex items-center justify-center gap-1 cursor-pointer"
+                    >
+                      <span>🗑️</span>
+                      <span>ลบใบงาน</span>
+                    </button>
+                  </div>
                 </div>
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* Edit Maintenance Ticket Modal */}
+      {editingTicket && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-[fadeIn_0.2s_ease-out]">
+          <div className="bg-white rounded-3xl p-6 lg:p-8 max-w-md w-full border border-slate-100 shadow-2xl relative my-auto">
+            <button 
+              onClick={() => setEditingTicket(null)}
+              className="absolute right-5 top-5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 p-1.5 rounded-lg cursor-pointer transition"
+            >
+              ✕
+            </button>
+            <div className="mb-5">
+              <h3 className="text-lg font-black text-slate-800 mb-1 flex items-center gap-2">
+                <span>✏️ แก้ไขใบงานแจ้งซ่อม</span>
+                <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded-lg text-xs font-extrabold border border-blue-100">#{editingTicket.id}</span>
+              </h3>
+              <p className="text-slate-400 text-xs">ปรับปรุงข้อมูลห้องพัก รายละเอียด และสถานะของใบงานแจ้งซ่อม</p>
+            </div>
+            
+            <form onSubmit={handleSaveEdit} className="space-y-4">
+              <div>
+                <label className="block text-slate-500 font-bold text-xs uppercase mb-1.5">🚪 หมายเลขห้อง</label>
+                <input
+                  type="text"
+                  required
+                  value={editRoomNumber}
+                  onChange={(e) => setEditRoomNumber(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-xs font-semibold focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-500 font-bold text-xs uppercase mb-1.5">🔧 ปัญหาที่ได้รับแจ้ง / อาการชำรุด</label>
+                <textarea
+                  required
+                  rows={4}
+                  value={editDescription}
+                  onChange={(e) => setEditDescription(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-xs font-semibold focus:border-blue-500 focus:ring-1 focus:ring-blue-500/20 outline-none transition resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="block text-slate-500 font-bold text-xs uppercase mb-1.5">⚙️ สถานะดำเนินการ</label>
+                <select
+                  value={editStatus}
+                  onChange={(e) => setEditStatus(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl text-slate-700 text-xs font-semibold focus:border-blue-500 outline-none transition"
+                >
+                  <option value="pending">🔴 รอดำเนินการ (Pending)</option>
+                  <option value="in_progress">🔧 กำลังซ่อม (In Progress)</option>
+                  <option value="resolved">✅ ซ่อมเสร็จสิ้น (Resolved)</option>
+                </select>
+              </div>
+
+              <div className="flex gap-3 pt-3">
+                <button
+                  type="button"
+                  onClick={() => setEditingTicket(null)}
+                  className="flex-1 py-3 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold rounded-xl transition text-xs cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEdit}
+                  className="flex-1 py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-extrabold rounded-xl transition text-xs flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-blue-600/10"
+                >
+                  {savingEdit ? (
+                    <span className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>บันทึกข้อมูล</span>
+                  )}
+                </button>
+              </div>
+            </form>
+          </div>
         </div>
       )}
     </div>

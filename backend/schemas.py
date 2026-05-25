@@ -386,6 +386,8 @@ class MaintenanceTicketCreate(MaintenanceTicketBase):
 class MaintenanceTicketUpdate(BaseModel):
     status: Optional[str] = None
     resolved_at: Optional[datetime] = None
+    room_number: Optional[str] = None
+    description: Optional[str] = None
 
     @field_validator('resolved_at', mode='before')
     @classmethod
