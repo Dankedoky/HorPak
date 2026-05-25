@@ -11,7 +11,7 @@ import models, schemas, database
 from auth import create_token, LoginRequest, get_current_user
 from database import engine, get_db
 from linebot.v3 import WebhookParser
-from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest, AsyncMessagingApiBlob, FlexMessage, FlexContainer
+from linebot.v3.messaging import Configuration, AsyncApiClient, AsyncMessagingApi, ReplyMessageRequest, TextMessage, PushMessageRequest, AsyncMessagingApiBlob, FlexMessage, FlexContainer, StickerMessage
 from linebot.v3.exceptions import InvalidSignatureError
 from linebot.v3.webhooks import MessageEvent, TextMessageContent
 
@@ -1689,6 +1689,33 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
                     )
                 )
             
+            continue
+
+        # 🐱 Handle Sticker messages
+        if event.message.type == "sticker":
+            reply_text = "ส่งสติกเกอร์น่ารักมาให้ใช่ไหมคะ 😸 หากมีอะไรให้น้องผู้ช่วยดูแล สามารถเลือกกดใช้งานเมนูด้านล่าง (Rich Menu) หรือพิมพ์คีย์เวิร์ดเพื่อสั่งงานได้เสมอนะคะ! 🙏😊"
+            try:
+                # packageId 11537 and stickerId 52002735 is a very cute official LINE Cat sticker
+                await get_line_bot_api().reply_message(
+                    ReplyMessageRequest(
+                        reply_token=event.reply_token,
+                        messages=[
+                            TextMessage(text=reply_text),
+                            StickerMessage(packageId="11537", stickerId="52002735")
+                        ]
+                    )
+                )
+            except Exception as e:
+                print(f"Error sending sticker response: {e}")
+                try:
+                    await get_line_bot_api().reply_message(
+                        ReplyMessageRequest(
+                            reply_token=event.reply_token,
+                            messages=[TextMessage(text=reply_text)]
+                        )
+                    )
+                except:
+                    pass
             continue
 
         if not isinstance(event.message, TextMessageContent):
