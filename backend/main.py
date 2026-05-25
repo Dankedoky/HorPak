@@ -1712,7 +1712,7 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
 
-        if text == "แจ้งโอนเงิน":
+        if text in ["แจ้งโอนเงิน", "ส่งสลิป", "ส่งสลิปโอนเงิน"]:
             reply_text = (
                 "💵 ช่องทางการชำระเงินของหอพัก:\n"
                 "ท่านสามารถชำระเงินผ่านบัญชี PromptPay หรือโอนเข้าบัญชีธนาคารของหอพัก (ข้อมูลแสดงอยู่ในใบแจ้งหนี้)\n\n"
@@ -2057,6 +2057,29 @@ async def line_webhook(request: Request, db: Session = Depends(get_db)):
             reply_text = f"✅ บันทึก{'รายรับ' if action == 'รับ' else 'รายจ่าย'}สำเร็จ!\n💰 จำนวนเงิน: {amount:,.2f} บาท\n📝 รายละเอียด: {description}\n🏢 ธุรกิจ: {unit.name if unit else 'ทั่วไป'}"
             await get_line_bot_api().reply_message(ReplyMessageRequest(reply_token=event.reply_token, messages=[TextMessage(text=reply_text)]))
             continue
+
+        # ⚠️ Fallback response for unrecognized text messages
+        reply_text = (
+            "สวัสดีค่ะ น้องผู้ช่วยหอพักยินดีให้บริการค่ะ! 🏠✨\n\n"
+            "เนื่องจากฉันไม่เข้าใจข้อความนี้ คุณสามารถเลือกกดใช้งานเมนูด้านล่าง (Rich Menu) หรือเลือกพิมพ์คีย์เวิร์ดเพื่อสั่งงานได้นะคะ:\n\n"
+            "👉 พิมพ์ 'เช็คยอด' เพื่อตรวจสอบยอดค้างชำระล่าสุด\n"
+            "👉 พิมพ์ 'แจ้งโอนเงิน' เพื่อดูวิธีโอนและแนบสลิป\n"
+            "👉 พิมพ์ 'แจ้งซ่อม' เพื่อส่งคำขอซ่อมแซมห้องพัก\n\n"
+            "หรือผูกบัญชี LINE กับห้องพักของคุณได้ง่ายๆ:\n"
+            "👉 พิมพ์ [ชื่อเล่น] หอ [เลขหอ] ห้อง [เลขห้อง]\n"
+            "เช่น: แก้ว หอ 26/20 ห้อง 302\n\n"
+            "ขอบคุณค่ะ 🙏😊"
+        )
+        try:
+            await get_line_bot_api().reply_message(
+                ReplyMessageRequest(
+                    reply_token=event.reply_token,
+                    messages=[TextMessage(text=reply_text)]
+                )
+            )
+        except Exception as e:
+            print(f"Error sending fallback message: {e}")
+        continue
 
     return {"status": "ok"}
 
